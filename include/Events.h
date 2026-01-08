@@ -2,24 +2,67 @@
 #include <shared_mutex>
 #include <chrono> // Novo: para controle de tempo
 #include <unordered_map> // Novo: para mapear atores e tempos
+#include <set>
 
 extern RE::TESEffectShader* parry;
 extern RE::TESEffectShader* PerfParry;
 
 
 namespace Sink {
-    inline static long long g_NormalParryMS = 500;
-    inline static long long g_PerfectParryMS = 150;
-    inline static float g_SlowTimeMultiplier = 0.2f;
-    inline static int g_SlowTimeDurationMS = 1000;
-	inline bool g_IsSlowed = false;
+    inline bool g_IsSlowed = false;
 
-    inline RE::BGSExplosion* g_ParryExplosion = nullptr;
-    inline RE::BGSExplosion* g_ParryExplosion2 = nullptr;
-    inline RE::BGSSoundDescriptorForm* g_ParrySound = nullptr;
-    inline RE::TESObjectACTI* g_ParryVisualActivator = nullptr;
+     inline RE::BGSExplosion* ParryNPlayer = nullptr;
+     inline RE::BGSExplosion* ParryNPlayer2 = nullptr;
+     inline RE::BGSExplosion* ParryNPlayer3 = nullptr;
+     inline RE::BGSExplosion* ParryNPlayerS = nullptr;
+     inline RE::BGSExplosion* ParryNPlayerS2 = nullptr;
+     inline RE::BGSExplosion* ParryNPlayerS3 = nullptr;
+     inline RE::BGSExplosion* ParryPPlayer = nullptr;
+     inline RE::BGSExplosion* ParryPPlayer2 = nullptr;
+     inline RE::BGSExplosion* ParryPPlayer3 = nullptr;
+     inline RE::BGSExplosion* ParryPPlayerS = nullptr;
+     inline RE::BGSExplosion* ParryPPlayerS2 = nullptr;
+     inline RE::BGSExplosion* ParryPPlayerS3 = nullptr;
+     inline RE::BGSExplosion* ParryNNPC = nullptr;
+     inline RE::BGSExplosion* ParryNNPC2 = nullptr;
+     inline RE::BGSExplosion* ParryNNPC3 = nullptr;
+     inline RE::BGSExplosion* ParryNNPCS = nullptr;
+     inline RE::BGSExplosion* ParryNNPCS2 = nullptr;
+     inline RE::BGSExplosion* ParryNNPCS3 = nullptr;
+     inline RE::BGSExplosion* ParryPNPC = nullptr;
+     inline RE::BGSExplosion* ParryPNPC2 = nullptr;
+     inline RE::BGSExplosion* ParryPNPC3 = nullptr;
+     inline RE::BGSExplosion* ParryPNPCS = nullptr;
+     inline RE::BGSExplosion* ParryPNPCS2 = nullptr;
+     inline RE::BGSExplosion* ParryPNPCS3 = nullptr;
 
-    // Função auxiliar para carregar tudo no início
+
+     inline RE::TESObjectACTI* Marker = nullptr;
+
+  
+    extern inline RE::BGSSoundDescriptorForm* g_ParrySound = nullptr;
+    extern inline RE::TESObjectACTI* g_ParryVisualActivator = nullptr;
+
+
+    //using _setIsGhost = void(*)(RE::Actor* actor, bool isGhost);
+
+    // // 2. Localização da função usando a Address Library (IDs para SE e AE)
+    // // ID 36287 = Skyrim SE | ID 37276 = Skyrim AE
+    // static inline REL::Relocation<_setIsGhost> IsGhostFunc{ RELOCATION_ID(36287, 37276) };
+
+    // /**
+    //  * Função para alterar o estado de fantasma de um ator imediatamente.
+    //  * @param a_actor O ponteiro para o ator (personagem/NPC).
+    //  * @param a_ghost 'true' para ativar invulnerabilidade, 'false' para desativar.
+    //  */
+    // static void setghostnow(RE::Actor * a_actor, bool a_ghost) {
+    //     if (a_actor) {
+    //         // 3. Execução da chamada direta ao motor do jogo
+    //         IsGhostFunc(a_actor, a_ghost);
+    //     }
+    // }
+
+     // Função auxiliar para carregar tudo no início
     void InitializeForms();
     RE::TESEffectShader* GetEffectShaderByFormID(RE::FormID a_formID, const std::string& a_pluginName);
 
@@ -29,11 +72,15 @@ namespace Sink {
         Perfect
     };
 
+    enum class ParrySource { Melee, Arrow, Magic };
+
     class ParryTimerManager {
     public:
         static void StartWindow(RE::FormID a_formID);
         static ParryType GetParryType(RE::FormID a_formID);
         static void RemoveWindow(RE::FormID a_formID);
+
+        static void CleanupExpiredWindows();
 
     private:
         // Define a duração da janela (ex: 0.5 segundos)
@@ -43,7 +90,8 @@ namespace Sink {
 
     void ApplySlowTime(float a_multiplier);
     void ResetTimeTask();
-    void PlayParryEffects(RE::Actor* a_target, ParryType a_type);
+
+    void PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::ParrySource a_source, Sink::ParryType a_type);
 
     class HitEventHandler : public RE::BSTEventSink<RE::TESHitEvent> {
     public:
@@ -90,61 +138,6 @@ namespace Sink {
         inline static std::set<RE::FormID> g_trackedNPCs;
         inline static std::shared_mutex g_mutex;
     };
-
-    struct ProcessHitHook
-    {
-        static void Install()
-        {
-            REL::Relocation<std::uintptr_t> actorVtable{ RE::VTABLE_Actor[0] };
-
-            // Realiza o hook no índice da VTable
-            _HandleHealthDamage = actorVtable.write_vfunc((0x104, 0x104, 0x106), HandleHealthDamage);
-            logger::info("Hook de HandleHealthDamage instalado com sucesso.");
-        }
-
-
-    private:
-        static void HandleHealthDamage(RE::Actor* a_self, RE::Actor* a_attacker, float a_damage) {
-            logger::info("HandleHealthDamage chamado para ator {:08X} com dano {:.2f}", a_self->GetFormID(), a_damage);
-
-            // 1. Verificamos se o alvo está na janela de Parry
-            ParryType type = ParryTimerManager::GetParryType(a_self->GetFormID());
-
-            if (type != ParryType::None) {
-                // Se estiver em Parry, zeramos o dano antes de processar!
-                a_damage = 0.0f;
-
-
-            }
-
-
-            // 2. Chama a função original (com dano 0 se foi parry, ou dano normal se não foi)
-            _HandleHealthDamage(a_self, a_attacker, a_damage);
-        }
-
-        static void HandleParrySuccess(RE::Actor* a_victim, RE::HitData& a_hitData, ParryType a_type)
-        {
-            auto attacker = a_hitData.aggressor.get()->As<RE::Actor>();
-
-            // Aplica Slow Time se for o player
-            if (a_victim->IsPlayerRef() || (attacker && attacker->IsPlayerRef())) {
-                // Suas funções de tempo aqui (ApplySlowTime, etc)
-            }
-
-            // Faz o atacante entrar em Stagger
-            if (attacker) {
-                float magnitude = (a_type == ParryType::Perfect) ? 2.0f : 1.0f;
-                attacker->SetGraphVariableFloat("staggerMagnitude", magnitude);
-                attacker->NotifyAnimationGraph("staggerStart");
-            }
-
-            // Limpa a janela para evitar bugs
-            ParryTimerManager::RemoveWindow(a_victim->GetFormID());
-
-            logger::info("Parry com sucesso via ProcessHit! Dano anulado.");
-        }
-
-        static inline REL::Relocation<decltype(HandleHealthDamage)> _HandleHealthDamage;
-    };
 }
+   
 
