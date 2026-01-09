@@ -105,8 +105,6 @@ RE::BSEventNotifyControl Sink::NpcCombatTracker::ProcessEvent(const RE::TESComba
             break;
         }
     }
-
-
     return RE::BSEventNotifyControl::kContinue;
 }
 
@@ -171,18 +169,19 @@ RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationG
     const RE::FormID formID = actor->GetFormID();
     const std::string_view eventName = a_event->tag;
     bool isPlayer = actor->IsPlayerRef();
-    // Otimização: Só tentamos limpar se o evento for relevante
-    if (eventName == "blockStartOut") {
-        
-        bool enabled = isPlayer ? ParrySettings::playerParryEnabled : ParrySettings::npcParryEnabled;
+    auto npc = const_cast<RE::Actor*>(actor);
 
+    if (eventName == "blockStartOut") {
+        bool enabled = isPlayer ? ParrySettings::playerParryEnabled : ParrySettings::npcParryEnabled;
         if (enabled) {
             ParryTimerManager::StartWindow(formID); // Sobrescreve o tempo existente
         }
     }
+    else if (eventName == "attackStop") {
+       npc->SetGraphVariableInt("GotParriedCMF", 0);
+    }
     else {
-            ParryTimerManager::CleanupExpiredWindows();
-        
+        ParryTimerManager::CleanupExpiredWindows();
     }
 
     return RE::BSEventNotifyControl::kContinue;
@@ -284,6 +283,9 @@ RE::TESEffectShader* Sink::GetEffectShaderByFormID(RE::FormID a_formID, const st
 
 void Sink::ApplySlowTime(float a_multiplier)
 {
+    if (RE::BSTimer::QGlobalTimeMultiplier() != 1.0f) {
+        return;
+    }
     auto* timer = RE::BSTimer::GetSingleton();
     if (timer) {
         timer->SetGlobalTimeMultiplier(a_multiplier, true);
@@ -312,98 +314,97 @@ void Sink::ResetTimeTask()
 void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::ParrySource a_source, Sink::ParryType a_type) {
     if (!a_blocker) return;
 
+    bool isPlayer = a_blocker->IsPlayerRef();
+
+    int visualMode = isPlayer ? ParrySettings::playerVisualMode : ParrySettings::npcVisualMode;
+    int soundMode = isPlayer ? ParrySettings::playerSoundMode : ParrySettings::npcSoundMode;
+
+    bool showVisuals = (visualMode == 1) || (visualMode == 2 && a_type == Sink::ParryType::Perfect);
+    bool playSounds = (soundMode == 1) || (soundMode == 2 && a_type == Sink::ParryType::Perfect);
 
     RE::BSFixedString nodeName = "WEAPON";
-	// 1. Verificar se o ator está segurando um escudo na mão esquerda
-    auto leftHandObject = a_blocker->GetEquippedObject(true); // true = mão esquerda
+    auto leftHandObject = a_blocker->GetEquippedObject(true);
     if (leftHandObject) {
         auto armor = leftHandObject->As<RE::TESObjectARMO>();
         if (armor && armor->IsShield()) {
-            nodeName = "SHIELD"; // Altera para o node do escudo se detectado
+            nodeName = "SHIELD";
         }
     }
 
-    if (a_blocker->IsPlayerRef()) {
+    if (isPlayer) {
         if (nodeName == "SHIELD") {
             if (a_type == Sink::ParryType::Perfect) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS3, false)->MoveToNode(a_blocker, nodeName);
-                //effectMarker->ApplyEffectShader(PerfParry, 10.5f, nullptr, false, false);
-                // 2. Som de Parry Perfeito (ex: um "tink" mais agudo ou eco)
-
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryPerfectSoundShield");
             }
             else if (a_type == Sink::ParryType::Normal) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS3, false)->MoveToNode(a_blocker, nodeName);
-
-                //a_blocker->ApplyEffectShader(parry, 10.5f, nullptr, false, false);
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryNormalSoundShield");
             }
         }
         else {
             if (a_type == Sink::ParryType::Perfect) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer3, false)->MoveToNode(a_blocker, nodeName);
-                //effectMarker->ApplyEffectShader(PerfParry, 10.5f, nullptr, false, false);
-                // 2. Som de Parry Perfeito (ex: um "tink" mais agudo ou eco)
-
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryPerfectSound");
             }
             else if (a_type == Sink::ParryType::Normal) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer3, false)->MoveToNode(a_blocker, nodeName);
-
-                //a_blocker->ApplyEffectShader(parry, 10.5f, nullptr, false, false);
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryNormalSound");
             }
         }
-        
     }
     else {
         if (nodeName == "SHIELD") {
             if (a_type == Sink::ParryType::Perfect) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS3, false)->MoveToNode(a_blocker, nodeName);
-                //effectMarker->ApplyEffectShader(PerfParry, 10.5f, nullptr, false, false);
-                // 2. Som de Parry Perfeito (ex: um "tink" mais agudo ou eco)
-
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryPerfectSoundShield");
             }
             else if (a_type == Sink::ParryType::Normal) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS3, false)->MoveToNode(a_blocker, nodeName);
-
-                //a_blocker->ApplyEffectShader(parry, 10.5f, nullptr, false, false);
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryNormalSoundShield");
             }
         }
         else {
             if (a_type == Sink::ParryType::Perfect) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryPNPC, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPNPC2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryPNPC3, false)->MoveToNode(a_blocker, nodeName);
-                //effectMarker->ApplyEffectShader(PerfParry, 10.5f, nullptr, false, false);
-                // 2. Som de Parry Perfeito (ex: um "tink" mais agudo ou eco)
-
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPC, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPC2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPC3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryPerfectSound");
             }
             else if (a_type == Sink::ParryType::Normal) {
-
-                a_blocker->PlaceObjectAtMe(Sink::ParryNNPC, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNNPC2, false)->MoveToNode(a_blocker, nodeName);
-                a_blocker->PlaceObjectAtMe(Sink::ParryNNPC3, false)->MoveToNode(a_blocker, nodeName);
-
-                //a_blocker->ApplyEffectShader(parry, 10.5f, nullptr, false, false);
+                if (showVisuals) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPC, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPC2, false)->MoveToNode(a_blocker, nodeName);
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPC3, false)->MoveToNode(a_blocker, nodeName);
+                }
+                if (playSounds) RE::PlaySound("ParryNormalSound");
             }
         }
     }
-
-    
 }

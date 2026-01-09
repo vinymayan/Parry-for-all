@@ -27,7 +27,9 @@ void ParrySettings::Save() {
     doc.AddMember("playerMeleeStagger", playerMeleeStagger, allocator);
     doc.AddMember("playerArrowStagger", playerArrowStagger, allocator);
     doc.AddMember("playerMagicStagger", playerMagicStagger, allocator);
-
+    doc.AddMember("playerVisualMode", playerVisualMode, allocator);
+    doc.AddMember("playerSoundMode", playerSoundMode, allocator);
+   
     // NPC
     doc.AddMember("npcParryEnabled", npcParryEnabled, allocator);
     doc.AddMember("npcNormalParryMS", npcNormalParryMS, allocator);
@@ -43,6 +45,8 @@ void ParrySettings::Save() {
     doc.AddMember("npcMeleeStagger", npcMeleeStagger, allocator);
     doc.AddMember("npcArrowStagger", npcArrowStagger, allocator);
     doc.AddMember("npcMagicStagger", npcMagicStagger, allocator);
+    doc.AddMember("npcVisualMode", npcVisualMode, allocator);
+    doc.AddMember("npcSoundMode", npcSoundMode, allocator);
 
     doc.AddMember("npcParrySlowTime", npcParrySlowTime, allocator);
     doc.AddMember("slowTimeMultiplier", slowTimeMultiplier, allocator);
@@ -59,24 +63,38 @@ void ParrySettings::Save() {
     }
 }
 
-void ParrySettings::MmRender()
+void ParrySettings::PlayerMenu()
 {
     bool changed = false;
-    ImGuiMCP::Text("Parry System Configuration");
-    ImGuiMCP::Separator();
-
-    // --- PLAYER SECTION ---
     if (ImGuiMCP::CollapsingHeader("Player Settings", ImGuiMCP::ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGuiMCP::Checkbox("Enable Player Parry", &playerParryEnabled)) changed = true;
 
         if (playerParryEnabled) {
             ImGuiMCP::Indent();
+            ImGuiMCP::SetNextItemWidth(200.0f);
             if (ImGuiMCP::SliderInt("Normal Window (ms)", &playerNormalParryMS, 50, 2000)) changed = true;
+            ImGuiMCP::SameLine();
+            ImGuiMCP::SetNextItemWidth(60.0f);
+            if (ImGuiMCP::InputInt("##NormalPrecise", &playerNormalParryMS, 0, 0)) {
+                playerNormalParryMS = std::clamp(playerNormalParryMS, 50, 2000);
+                changed = true;
+            }
+
+            // Perfect Window
+            ImGuiMCP::SetNextItemWidth(200.0f);
             if (ImGuiMCP::SliderInt("Perfect Window (ms)", &playerPerfectParryMS, 10, 500)) changed = true;
+            ImGuiMCP::SameLine();
+            ImGuiMCP::SetNextItemWidth(60.0f);
+            if (ImGuiMCP::InputInt("##PerfectPrecise", &playerPerfectParryMS, 0, 0)) {
+                playerPerfectParryMS = std::clamp(playerPerfectParryMS, 10, 500);
+                changed = true;
+            }
 
             ImGuiMCP::Spacing();
+            if (ImGuiMCP::Combo("Visual Effects", &playerVisualMode, ReflectOptions)) changed = true;
+            if (ImGuiMCP::Combo("Sound Effects", &playerSoundMode, ReflectOptions)) changed = true;
             ImGuiMCP::TextDisabled("Advanced Features");
-            if (ImGuiMCP::Checkbox("Stagger Attacker on Melee Parry", &playerMeleeStagger)) changed = true;
+            if (ImGuiMCP::Combo("Stagger Attacker on Melee Parry", &playerMeleeStagger, ReflectOptions)) changed = true;
             if (ImGuiMCP::Combo("Reflect Melee Damage", &playerReflectMeleeMode, ReflectOptions)) changed = true;
             if (playerReflectMeleeMode > 0) {
                 ImGuiMCP::Indent();
@@ -91,7 +109,7 @@ void ParrySettings::MmRender()
                 if (playerArrowMode == 2) {
                     if (ImGuiMCP::Combo("Arrow Cost", (int*)&playerArrowCostType, CostOptionsUI)) changed = true;
                 }
-                if (ImGuiMCP::Checkbox("Stagger Shooter", &playerArrowStagger)) changed = true;
+                if (ImGuiMCP::Combo("Stagger Shooter", &playerArrowStagger, ReflectOptions)) changed = true;
                 ImGuiMCP::Unindent();
             }
 
@@ -103,7 +121,7 @@ void ParrySettings::MmRender()
                 if (playerMagicMode == 2) {
                     if (ImGuiMCP::Combo("Magic Cost", (int*)&playerMagicCostType, CostOptionsUI)) changed = true;
                 }
-                if (ImGuiMCP::Checkbox("Stagger Caster", &playerMagicStagger)) changed = true;
+                if (ImGuiMCP::Combo("Stagger Caster", &playerMagicStagger, ReflectOptions)) changed = true;
                 ImGuiMCP::Unindent();
             }
 
@@ -111,16 +129,64 @@ void ParrySettings::MmRender()
         }
     }
 
-    // --- NPC SECTION ---
+    ImGuiMCP::Spacing();
+    if (ImGuiMCP::CollapsingHeader("Slow Motion Parry")) {
+        // Multiplier (Float)
+        ImGuiMCP::SetNextItemWidth(200.0f);
+        if (ImGuiMCP::SliderFloat("Time Multiplier", &slowTimeMultiplier, 0.02f, 1.0f, "%.2f")) changed = true;
+        ImGuiMCP::SameLine();
+        ImGuiMCP::SetNextItemWidth(60.0f);
+        if (ImGuiMCP::InputFloat("##SlowMultPrecise", &slowTimeMultiplier, 0.0f, 0.0f, "%.2f")) {
+            slowTimeMultiplier = std::clamp(slowTimeMultiplier, 0.02f, 1.0f);
+            changed = true;
+        }
+
+        // Duration
+        ImGuiMCP::SetNextItemWidth(200.0f);
+        if (ImGuiMCP::SliderInt("Duration (ms)", &slowTimeDurationMS, 100, 5000)) changed = true;
+        ImGuiMCP::SameLine();
+        ImGuiMCP::SetNextItemWidth(60.0f);
+        if (ImGuiMCP::InputInt("##SlowDurPrecise", &slowTimeDurationMS, 0, 0)) {
+            slowTimeDurationMS = std::clamp(slowTimeDurationMS, 100, 5000);
+            changed = true;
+        }
+    }
+
+    if (changed) Save();
+}
+
+void ParrySettings::NPCMenu()
+{
+    bool changed = false;
     if (ImGuiMCP::CollapsingHeader("NPC Settings", ImGuiMCP::ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGuiMCP::Checkbox("Enable NPC Parry", &npcParryEnabled)) changed = true;
 
         if (npcParryEnabled) {
             ImGuiMCP::Indent();
+            ImGuiMCP::SetNextItemWidth(200.0f);
             if (ImGuiMCP::SliderInt("NPC Normal Window (ms)", &npcNormalParryMS, 50, 2000)) changed = true;
+            ImGuiMCP::SameLine();
+            ImGuiMCP::SetNextItemWidth(60.0f);
+            if (ImGuiMCP::InputInt("##NPCNormalPrecise", &npcNormalParryMS, 0, 0)) {
+                npcNormalParryMS = std::clamp(npcNormalParryMS, 50, 2000);
+                changed = true;
+            }
+
+            // NPC Perfect Window
+            ImGuiMCP::SetNextItemWidth(200.0f);
             if (ImGuiMCP::SliderInt("NPC Perfect Window (ms)", &npcPerfectParryMS, 10, 500)) changed = true;
-            if (ImGuiMCP::Checkbox("Slow Time on NPC Parry", &npcParrySlowTime)) changed = true;
-            if (ImGuiMCP::Checkbox("NPC Stagger Attacker on Melee Parry", &npcMeleeStagger)) changed = true;
+            ImGuiMCP::SameLine();
+            ImGuiMCP::SetNextItemWidth(60.0f);
+            if (ImGuiMCP::InputInt("##NPCPerfectPrecise", &npcPerfectParryMS, 0, 0)) {
+                npcPerfectParryMS = std::clamp(npcPerfectParryMS, 10, 500);
+                changed = true;
+            }
+            ImGuiMCP::Spacing();
+            if (ImGuiMCP::Combo("NPC Visual Effects", &npcVisualMode, ReflectOptions)) changed = true;
+            if (ImGuiMCP::Combo("NPC Sound Effects", &npcSoundMode, ReflectOptions)) changed = true;
+            ImGuiMCP::Spacing();
+            if (ImGuiMCP::Checkbox("Slow Time on NPC Parry the Player", &npcParrySlowTime)) changed = true;
+            if (ImGuiMCP::Combo("Stagger Attacker on Melee Parry", &npcMeleeStagger, ReflectOptions)) changed = true;
 
             if (ImGuiMCP::Combo("NPC Reflect Melee Damage", &npcReflectMeleeMode, ReflectOptions)) changed = true;
             if (npcReflectMeleeMode > 0) {
@@ -136,7 +202,7 @@ void ParrySettings::MmRender()
                 if (npcArrowMode == 2) {
                     if (ImGuiMCP::Combo("NPC Arrow Cost", (int*)&npcArrowCostType, CostOptionsUI)) changed = true;
                 }
-                if (ImGuiMCP::Checkbox("NPC Stagger Shooter", &npcArrowStagger)) changed = true;
+                if (ImGuiMCP::Combo("Stagger Shooter", &npcArrowStagger, ReflectOptions)) changed = true;
                 ImGuiMCP::Unindent();
             }
 
@@ -148,18 +214,12 @@ void ParrySettings::MmRender()
                 if (npcMagicMode == 2) {
                     if (ImGuiMCP::Combo("NPC Magic Cost", (int*)&npcMagicCostType, CostOptionsUI)) changed = true;
                 }
-                if (ImGuiMCP::Checkbox("NPC Stagger Caster", &npcMagicStagger)) changed = true;
+                if (ImGuiMCP::Combo("Stagger Caster", &npcMagicStagger, ReflectOptions)) changed = true;
                 ImGuiMCP::Unindent();
             }
-           
+
             ImGuiMCP::Unindent();
         }
-    }
-
-    ImGuiMCP::Spacing();
-    if (ImGuiMCP::CollapsingHeader("Slow Motion Parry")) {
-        if (ImGuiMCP::SliderFloat("Time Multiplier", &slowTimeMultiplier, 0.05f, 1.0f, "%.2f")) changed = true;
-        if (ImGuiMCP::SliderInt("Duration (ms)", &slowTimeDurationMS, 100, 5000)) changed = true;
     }
 
     if (changed) Save();
@@ -168,7 +228,8 @@ void ParrySettings::MmRender()
 void ParrySettings::MmRegister() {
     if (SKSEMenuFramework::IsInstalled()) {
         SKSEMenuFramework::SetSection("Parry For All");
-        SKSEMenuFramework::AddSectionItem("General Settings", MmRender);
+        SKSEMenuFramework::AddSectionItem("Player Settings", PlayerMenu);
+        SKSEMenuFramework::AddSectionItem("NPC Settings", NPCMenu);
     }
 }
 
@@ -198,9 +259,12 @@ void ParrySettings::Load() {
             if (doc.HasMember("playerReflectMeleeMode")) playerReflectMeleeMode = doc["playerReflectMeleeMode"].GetInt();
             if (doc.HasMember("playerReflectMeleeCostType")) playerReflectMeleeCostType = static_cast<CostType>(doc["playerReflectMeleeCostType"].GetInt());
 
-            if (doc.HasMember("playerMeleeStagger")) playerMeleeStagger = doc["playerMeleeStagger"].GetBool();
-            if (doc.HasMember("playerArrowStagger")) playerArrowStagger = doc["playerArrowStagger"].GetBool();
-            if (doc.HasMember("playerMagicStagger")) playerMagicStagger = doc["playerMagicStagger"].GetBool();
+            if (doc.HasMember("playerMeleeStagger")) playerMeleeStagger = doc["playerMeleeStagger"].GetInt();
+            if (doc.HasMember("playerArrowStagger")) playerArrowStagger = doc["playerArrowStagger"].GetInt();
+            if (doc.HasMember("playerMagicStagger")) playerMagicStagger = doc["playerMagicStagger"].GetInt();
+            if (doc.HasMember("playerVisualMode")) playerVisualMode = doc["playerVisualMode"].GetInt();
+            if (doc.HasMember("playerSoundMode")) playerSoundMode = doc["playerSoundMode"].GetInt();
+            
 
             // NPC Load...
             if (doc.HasMember("npcParryEnabled")) npcParryEnabled = doc["npcParryEnabled"].GetBool();
@@ -215,9 +279,11 @@ void ParrySettings::Load() {
             if (doc.HasMember("npcReflectMeleeMode")) npcReflectMeleeMode = doc["npcReflectMeleeMode"].GetInt();
             if (doc.HasMember("npcReflectMeleeCostType")) npcReflectMeleeCostType = static_cast<CostType>(doc["npcReflectMeleeCostType"].GetInt());
 
-            if (doc.HasMember("npcMeleeStagger")) npcMeleeStagger = doc["npcMeleeStagger"].GetBool();
-            if (doc.HasMember("npcArrowStagger")) npcArrowStagger = doc["npcArrowStagger"].GetBool();
-            if (doc.HasMember("npcMagicStagger")) npcMagicStagger = doc["npcMagicStagger"].GetBool();
+            if (doc.HasMember("npcMeleeStagger")) npcMeleeStagger = doc["npcMeleeStagger"].GetInt();
+            if (doc.HasMember("npcArrowStagger")) npcArrowStagger = doc["npcArrowStagger"].GetInt();
+            if (doc.HasMember("npcMagicStagger")) npcMagicStagger = doc["npcMagicStagger"].GetInt();
+            if (doc.HasMember("npcVisualMode")) npcVisualMode = doc["npcVisualMode"].GetInt();
+            if (doc.HasMember("npcSoundMode")) npcSoundMode = doc["npcSoundMode"].GetInt();
 
             if (doc.HasMember("npcParrySlowTime")) npcParrySlowTime = doc["npcParrySlowTime"].GetBool();
             if (doc.HasMember("slowTimeMultiplier")) slowTimeMultiplier = doc["slowTimeMultiplier"].GetFloat();

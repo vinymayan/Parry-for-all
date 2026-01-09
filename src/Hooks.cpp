@@ -2,17 +2,17 @@
 #include "Settings.h"
 
 
-
 void ApplyStagger(RE::Actor* a_target, float a_magnitude, int a_parryValue) {
 	if (!a_target) return;
 	a_target->SetGraphVariableInt("GotParriedCMF", a_parryValue);
 	a_target->SetGraphVariableFloat("staggerMagnitude", a_magnitude);
 	a_target->NotifyAnimationGraph("staggerStart");
-	SKSE::GetTaskInterface()->AddTask([a_target]() {
+	
+	/*SKSE::GetTaskInterface()->AddTask([a_target]() {
 		if (a_target) {
 			a_target->SetGraphVariableInt("GotParriedCMF", 0);
 		}
-		});
+		});*/
 }
 
 RE::ActorValue GetAVFromCostType(ParrySettings::CostType a_type) {
@@ -55,20 +55,18 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 
 	if (type != Sink::ParryType::None) {
 		int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : ParrySettings::npcReflectMeleeMode;
-		bool staggerEnabled = isPlayer ? ParrySettings::playerMeleeStagger : ParrySettings::npcMeleeStagger;
+		int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : ParrySettings::npcMeleeStagger;
+		bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
 		ParrySettings::CostType costType = isPlayer ? ParrySettings::playerReflectMeleeCostType : ParrySettings::npcReflectMeleeCostType;
 
 		// 1. Verificar se deve refletir
 		bool shouldReflect = (reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect);
 
-		// 2. Calcular Custo (ex: 20% do dano da arma em stamina)
 		float cost = hitData.totalDamage;
 
 		if (HasEnoughResource(victim, costType, cost)) {
 			auto player = RE::PlayerCharacter::GetSingleton();
 			if (!Sink::g_IsSlowed) {
-				// Caso 1: Player deu o parry
-				// Caso 2: NPC deu parry no Player E a opção está ligada
 				if (victim == player || (aggressor == player && ParrySettings::npcParrySlowTime)) {
 					Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
 					Sink::ResetTimeTask();
@@ -86,7 +84,7 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 			}
 
 			// Aplica Stagger
-			if (staggerEnabled) {
+			if (shouldStagger) {
 				int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
 				float magnitude = (type == Sink::ParryType::Perfect ? 1.0f : 0.5f);
 				ApplyStagger(aggressor, magnitude, parryVal);
@@ -110,9 +108,6 @@ void SetRotationFromVector(RE::Projectile* a_projectile, const RE::NiPoint3& a_d
 	float yaw = atan2f(a_direction.x, a_direction.y);
 	float pitch = atan2f(a_direction.z, sqrtf(a_direction.x * a_direction.x + a_direction.y * a_direction.y));
 
-	// Skyrim usa NiMatrix3 ou quaternions para rotação, mas para projéteis, 
-	// atualizar o NiNode e a velocidade linear geralmente resolve o visual.
-	// No entanto, forçar a rotação no NiNode ajuda no visual imediato.
 	RE::NiMatrix3 rotation;
 	rotation.SetEulerAnglesXYZ(-pitch, 0.0f, yaw); // Ajuste de eixos pode variar dependendo do modelo
 	a_projectile->Get3D()->local.rotate = rotation;
@@ -231,10 +226,12 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		: (isPlayer ? ParrySettings::playerMagicReflectMode : ParrySettings::npcMagicReflectMode);
 
 	bool shouldReflect = (reflectModeSetting == 1) || (reflectModeSetting == 2 && type == Sink::ParryType::Perfect);
-	bool staggerEnabled = isArrow ? (isPlayer ? ParrySettings::playerArrowStagger : ParrySettings::npcArrowStagger)
+	int staggerMode = isArrow ? (isPlayer ? ParrySettings::playerArrowStagger : ParrySettings::npcArrowStagger)
 		: (isPlayer ? ParrySettings::playerMagicStagger : ParrySettings::npcMagicStagger);
 
-	if (staggerEnabled) {
+	bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
+
+	if (shouldStagger) {
 		auto shooter = a_projectile->GetProjectileRuntimeData().shooter.get().get();
 		if (shooter && shooter->As<RE::Actor>()) {
 			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
@@ -306,13 +303,13 @@ void Hook_OnProjectileCollision::OnArrowCollision(RE::Projectile* a_this, RE::hk
 void Hook_OnProjectileCollision::OnMissileCollision(RE::Projectile* a_this, RE::hkpAllCdPointCollector* a_AllCdPointCollector)
 {
 	logger::debug("Missile collided");
-	//if (a_this && (a_this->GetProjectileRuntimeData().spell || a_this->GetProjectileBase())) {
-	//	logger::debug("Processing projectile for parry check");
-	//	if (shouldIgnoreHit(a_this, a_AllCdPointCollector)) {
-	//		logger::debug("Projectile parried, ignoring collision");
-	//		return; // Parry bem-sucedido, ignora a colisão original
-	//	}
-	//}
+	if (a_this && (a_this->GetProjectileRuntimeData().spell || a_this->GetProjectileBase())) {
+		logger::debug("Processing projectile for parry check");
+		if (shouldIgnoreHit(a_this, a_AllCdPointCollector)) {
+			logger::debug("Projectile parried, ignoring collision");
+			return; // Parry bem-sucedido, ignora a colisão original
+		}
+	}
 	_missileCollission(a_this, a_AllCdPointCollector);
 }
 

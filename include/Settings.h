@@ -20,21 +20,21 @@ namespace ParrySettings {
     };
 
     // Player Timings
-    inline int playerNormalParryMS = 500;
+    inline int playerNormalParryMS = 300;
     inline int playerPerfectParryMS = 150;
     inline bool playerParryEnabled = true;
 
     // Player Advanced Options
     // Mode: 0 = Disabled, 1 = Free, 2 = Cost
-    inline int playerArrowMode = 0;
-    inline int playerArrowReflectMode = 0; // 0: Disable, 1: Enable, 2: Perfect
+    inline int playerArrowMode = 1;
+    inline int playerArrowReflectMode = 1; // 0: Disable, 1: Enable, 2: Perfect
     inline CostType playerArrowCostType = CostType::None;
 
-    inline int playerMagicMode = 0;
-    inline int playerMagicReflectMode = 0; // 0: Disable, 1: Enable, 2: Perfect
+    inline int playerMagicMode = 1;
+    inline int playerMagicReflectMode = 1; // 0: Disable, 1: Enable, 2: Perfect
     inline CostType playerMagicCostType = CostType::None;
 
-    inline int playerReflectMeleeMode = 0; // 0: Disable, 1: Enable, 2: Perfect
+    inline int playerReflectMeleeMode = 1; // 0: Disable, 1: Enable, 2: Perfect
     inline CostType playerReflectMeleeCostType = CostType::None;
 
     // NPC Timings
@@ -43,32 +43,41 @@ namespace ParrySettings {
     inline int npcPerfectParryMS = 100;
 
     // NPC Advanced Options
-    inline int npcArrowMode = 0;
-    inline int npcArrowReflectMode = 0;
+    inline int npcArrowMode = 1;
+    inline int npcArrowReflectMode = 1;
     inline CostType npcArrowCostType = CostType::None;
 
-    inline int npcMagicMode = 0;
-    inline int npcMagicReflectMode = 0;
+    inline int npcMagicMode = 1;
+    inline int npcMagicReflectMode = 1;
     inline CostType npcMagicCostType = CostType::None;
 
-    inline int npcReflectMeleeMode = 0;
+    inline int npcReflectMeleeMode = 1;
     inline CostType npcReflectMeleeCostType = CostType::None;
 
-    // Stagger Options 
-    inline bool playerMeleeStagger = true;
-    inline bool playerArrowStagger = false;
-    inline bool playerMagicStagger = false;
+    // Player Effects
+    inline int playerVisualMode = 1; 
+    inline int playerSoundMode = 1;
 
-    inline bool npcMeleeStagger = true;
-    inline bool npcArrowStagger = false;
-    inline bool npcMagicStagger = false;
+    // NPC Effects
+    inline int npcVisualMode = 1;
+    inline int npcSoundMode = 1;
+
+    // Stagger Options 
+    inline int playerMeleeStagger = 1;
+    inline int playerArrowStagger = 1;
+    inline int playerMagicStagger = 1;
+
+    inline int npcMeleeStagger = 1;
+    inline int npcArrowStagger = 1;
+    inline int npcMagicStagger = 1;
 
     // Slow Time
     inline bool npcParrySlowTime = true;
-    inline float slowTimeMultiplier = 0.2f;
-    inline int slowTimeDurationMS = 1000;
+    inline float slowTimeMultiplier = 0.3f;
+    inline int slowTimeDurationMS = 200;
 
-    void MmRender();
+    void PlayerMenu();
+    void NPCMenu();
     void MmRegister();
     void Load();
     void Save();
