@@ -73,6 +73,7 @@ namespace ParrySettings {
 
     // Slow Time
     inline bool npcParrySlowTime = true;
+    inline bool npcParryPlayerEnabled = true;
     inline float slowTimeMultiplier = 0.3f;
     inline int slowTimeDurationMS = 200;
 

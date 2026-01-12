@@ -8,6 +8,7 @@ extern RE::TESEffectShader* parry;
 extern RE::TESEffectShader* PerfParry;
 
 
+
 namespace Sink {
     inline bool g_IsSlowed = false;
 
@@ -42,6 +43,17 @@ namespace Sink {
   
     extern inline RE::BGSSoundDescriptorForm* g_ParrySound = nullptr;
     extern inline RE::TESObjectACTI* g_ParryVisualActivator = nullptr;
+    inline bool isProcessingRegistration = true;
+
+    class PC3DLoadEventHandler : public RE::BSTEventSink<RE::TESObjectLoadedEvent> {
+    public:
+        static PC3DLoadEventHandler* GetSingleton() {
+            static PC3DLoadEventHandler singleton;
+            return &singleton;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override;
+    };
 
 
     //using _setIsGhost = void(*)(RE::Actor* actor, bool isGhost);

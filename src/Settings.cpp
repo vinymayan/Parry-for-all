@@ -49,6 +49,7 @@ void ParrySettings::Save() {
     doc.AddMember("npcSoundMode", npcSoundMode, allocator);
 
     doc.AddMember("npcParrySlowTime", npcParrySlowTime, allocator);
+    doc.AddMember("npcParryPlayerEnabled", npcParryPlayerEnabled, allocator);
     doc.AddMember("slowTimeMultiplier", slowTimeMultiplier, allocator);
     doc.AddMember("slowTimeDurationMS", slowTimeDurationMS, allocator);
 
@@ -185,7 +186,11 @@ void ParrySettings::NPCMenu()
             if (ImGuiMCP::Combo("NPC Visual Effects", &npcVisualMode, ReflectOptions)) changed = true;
             if (ImGuiMCP::Combo("NPC Sound Effects", &npcSoundMode, ReflectOptions)) changed = true;
             ImGuiMCP::Spacing();
-            if (ImGuiMCP::Checkbox("Slow Time on NPC Parry the Player", &npcParrySlowTime)) changed = true;
+            if (ImGuiMCP::Checkbox("Can Parry Player", &npcParryPlayerEnabled)) changed = true;
+            if(npcParryPlayerEnabled) {
+                if (ImGuiMCP::Checkbox("Slow Time on NPC Parry the Player", &npcParrySlowTime)) changed = true;
+			}
+            
             if (ImGuiMCP::Combo("Stagger Attacker on Melee Parry", &npcMeleeStagger, ReflectOptions)) changed = true;
 
             if (ImGuiMCP::Combo("NPC Reflect Melee Damage", &npcReflectMeleeMode, ReflectOptions)) changed = true;
@@ -286,6 +291,7 @@ void ParrySettings::Load() {
             if (doc.HasMember("npcSoundMode")) npcSoundMode = doc["npcSoundMode"].GetInt();
 
             if (doc.HasMember("npcParrySlowTime")) npcParrySlowTime = doc["npcParrySlowTime"].GetBool();
+            if (doc.HasMember("npcParryPlayerEnabled")) npcParryPlayerEnabled = doc["npcParryPlayerEnabled"].GetBool();
             if (doc.HasMember("slowTimeMultiplier")) slowTimeMultiplier = doc["slowTimeMultiplier"].GetFloat();
             if (doc.HasMember("slowTimeDurationMS")) slowTimeDurationMS = doc["slowTimeDurationMS"].GetInt();
         }

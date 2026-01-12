@@ -6,11 +6,10 @@ const std::string dawn = "Dawnguard.esm";
 
 void OnMessage(SKSE::MessagingInterface::Message* message) {
     if (message->type == SKSE::MessagingInterface::kDataLoaded) {
-        parry = Sink::GetEffectShaderByFormID(0x802, "Trigger Combat Behaviour.esp");
-        PerfParry = Sink::GetEffectShaderByFormID(0x802, "Trigger Combat Behaviour.esp");
         ParrySettings::Load();
         ParrySettings::MmRegister();
         Sink::InitializeForms();
+        RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(Sink::PC3DLoadEventHandler::GetSingleton());
        // HandleDamageHook<RE::PlayerCharacter>::install();
         //HandleDamageHook<RE::Character>::install();
         //HandleDamageHook<RE::Actor>::install();
@@ -24,6 +23,7 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(Sink::NpcCombatTracker::GetSingleton());
         auto player = RE::PlayerCharacter::GetSingleton();
         player->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton());
+        Sink::NpcCombatTracker::RegisterSinksForExistingCombatants();
         
     }
 }

@@ -194,6 +194,11 @@ void Sink::ParryTimerManager::StartWindow(RE::FormID a_formID) {
 
 Sink::ParryType Sink::ParryTimerManager::GetParryType(RE::FormID a_formID) {
     std::chrono::steady_clock::time_point startTime;
+    auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_formID);
+    /*bool isBlocking = actor->IsBlocking();
+    if (!isBlocking) {
+        return ParryType::None;
+    }*/
     {
         std::shared_lock lock(g_parryMutex);
         auto it = g_parryWindows.find(a_formID);
@@ -203,7 +208,7 @@ Sink::ParryType Sink::ParryTimerManager::GetParryType(RE::FormID a_formID) {
     auto now = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
 
-    auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_formID);
+    
     if (!actor) return ParryType::None;
 
     bool isPlayer = actor->IsPlayerRef();
@@ -406,5 +411,41 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                 if (playSounds) RE::PlaySound("ParryNormalSound");
             }
         }
+    }
+}
+
+RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*)
+{
+    {
+        if (!a_event || !a_event->loaded) return RE::BSEventNotifyControl::kContinue;
+
+        if (a_event->formID == 0x14) {
+            // Evita spam de requests se já estiver processando
+            if (isProcessingRegistration) return RE::BSEventNotifyControl::kContinue;
+            isProcessingRegistration = true;
+
+            SKSE::GetTaskInterface()->AddTask([]() {
+                auto* player = RE::PlayerCharacter::GetSingleton();
+                if (player) {
+                    // Verifica se o Graph Manager existe antes de prosseguir
+                    RE::BSTSmartPointer<RE::BSAnimationGraphManager> graphManager;
+                    player->GetAnimationGraphManager(graphManager);
+
+                    if (graphManager) {
+                        if(player->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
+                            SKSE::log::info("[Actor3DLoadEventHandler] Sink do PLAYER reconectada com sucesso.");
+                        }
+                        
+                    }
+                    else {
+                        isProcessingRegistration = false;
+                    }
+                }
+                else {
+                    isProcessingRegistration = false;
+                }
+                });
+        }
+        return RE::BSEventNotifyControl::kContinue;
     }
 }

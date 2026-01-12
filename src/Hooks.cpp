@@ -45,7 +45,10 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 {
 	logger::debug("Melee hit processed");
 	auto aggressor = hitData.aggressor.get().get();
-	if (!victim || !aggressor) {
+	bool isUnblockble = false;
+	aggressor->GetGraphVariableBool("UnblockableAttackCMF", isUnblockble);
+
+	if (!victim || !aggressor || isUnblockble || !victim->IsBlocking()) {
 		_ProcessHit(victim, hitData);
 		return;
 	}
@@ -53,7 +56,11 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(victim->GetFormID());
 	bool isPlayer = (victim == RE::PlayerCharacter::GetSingleton());
 
-	if (type != Sink::ParryType::None) {
+	if (type != Sink::ParryType::None && !isUnblockble) {
+		if (!isPlayer && aggressor->IsPlayerRef() && !ParrySettings::npcParryPlayerEnabled) {
+			_ProcessHit(victim, hitData);
+			return;
+		}
 		int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : ParrySettings::npcReflectMeleeMode;
 		int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : ParrySettings::npcMeleeStagger;
 		bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
@@ -190,6 +197,13 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(a_blocker->GetFormID());
 	if (type == Sink::ParryType::None) return false;
 
+	auto shooterHandle = a_projectile->GetProjectileRuntimeData().shooter;
+	auto shooter = shooterHandle.get().get() ? shooterHandle.get().get()->As<RE::Actor>() : nullptr;
+
+	if (shooter && shooter->IsPlayerRef() && !ParrySettings::npcParryPlayerEnabled) {
+		return false;
+	}
+
 	bool isArrow = !a_projectile->GetProjectileRuntimeData().spell;
 
 	int currentMode = isArrow ? (isPlayer ? ParrySettings::playerArrowMode : ParrySettings::npcArrowMode)
@@ -240,8 +254,7 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		}
 	}
 
-	auto shooterHandle = a_projectile->GetProjectileRuntimeData().shooter;
-	auto shooter = shooterHandle.get().get() ? shooterHandle.get().get()->As<RE::Actor>() : nullptr;
+	
 
 	if (!Sink::g_IsSlowed) {
 		// a_blocker é quem está defendendo o projétil
