@@ -28,64 +28,6 @@ void Sink::ParryTimerManager::CleanupExpiredWindows() {
 }
 
 
-RE::BSEventNotifyControl Sink::HitEventHandler::ProcessEvent(const RE::TESHitEvent* a_event,
-    RE::BSTEventSource<RE::TESHitEvent>* a_source) {
-    auto player = RE::PlayerCharacter::GetSingleton();
-    if (!a_event || !a_event->cause || !a_event->target) {
-        return RE::BSEventNotifyControl::kContinue;
-    }
-
-    auto* target = a_event->target.get()->As<RE::Actor>();
-    auto* attacker = a_event->cause.get()->As<RE::Actor>();
-
-    if (!attacker) {
-        return RE::BSEventNotifyControl::kContinue;
-    }
-
-    if (!target || target->IsDead()) {
-        return RE::BSEventNotifyControl::kContinue;
-    }
-
-    if (target->IsPlayerRef() && !ParrySettings::playerParryEnabled) {
-        return RE::BSEventNotifyControl::kContinue;
-	}else if(target != player && !ParrySettings::npcParryEnabled){
-        return RE::BSEventNotifyControl::kContinue;
-	}
-
-    //bool PlayPaired = false;
-    //bool PlayParry = false;
-    //ParryType type = ParryTimerManager::GetParryType(target->GetFormID());
-
-    //if (type != ParryType::None) {
-		
-
-    //    if (!g_IsSlowed && (attacker == player || target == player)) {
-    //        ApplySlowTime(ParrySettings::slowTimeMultiplier);
-    //        ResetTimeTask();
-    //    }
-    //    //setghostnow(target, false);
-    //    // Aplica os efeitos e seta as variáveis no alvo
-    //    PlayParryEffects(target, type);
-
-
-    //    if (attacker) {
-    //        attacker->SetGraphVariableFloat("staggerMagnitude", 0.75f); //
-    //        attacker->NotifyAnimationGraph("staggerStart"); //
-    //        attacker->SetGraphVariableInt("GotParriedCMF", 1);
-    //        // Opcional: Se for perfeito, o atacante fica mais tempo em stagger
-    //        if (type == ParryType::Perfect) {
-    //            attacker->SetGraphVariableFloat("staggerMagnitude", 1.0f); //
-    //            attacker->SetGraphVariableInt("GotParriedCMF", 2);
-    //        }
-    //    }
-
-    //    // Limpa a janela para evitar múltiplos acionamentos no mesmo hit
-    //    ParryTimerManager::RemoveWindow(target->GetFormID());
-    //    return RE::BSEventNotifyControl::kContinue;
-    //}
-   
-    return RE::BSEventNotifyControl::kContinue;
-}
 
 RE::BSEventNotifyControl Sink::NpcCombatTracker::ProcessEvent(const RE::TESCombatEvent* a_event, RE::BSTEventSource<RE::TESCombatEvent>*)
 {
@@ -195,10 +137,7 @@ void Sink::ParryTimerManager::StartWindow(RE::FormID a_formID) {
 Sink::ParryType Sink::ParryTimerManager::GetParryType(RE::FormID a_formID) {
     std::chrono::steady_clock::time_point startTime;
     auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_formID);
-    /*bool isBlocking = actor->IsBlocking();
-    if (!isBlocking) {
-        return ParryType::None;
-    }*/
+
     {
         std::shared_lock lock(g_parryMutex);
         auto it = g_parryWindows.find(a_formID);
@@ -259,7 +198,19 @@ void Sink::InitializeForms() {
     ParryPNPCS2 = dataHandler->LookupForm<RE::BGSExplosion>(0x813, "ParryAll.esp");
     ParryPNPCS3 = dataHandler->LookupForm<RE::BGSExplosion>(0x81B, "ParryAll.esp");
 
-    Marker = dataHandler->LookupForm<RE::TESObjectACTI>(0x81E, "ParryAll.esp");
+    // Sounds
+    ParryNPlayerSound = dataHandler->LookupForm<RE::BGSExplosion>(0x81F, "ParryAll.esp");
+    ParryNPlayerSSound = dataHandler->LookupForm<RE::BGSExplosion>(0x821, "ParryAll.esp");
+    ParryPPlayerSound = dataHandler->LookupForm<RE::BGSExplosion>(0x820, "ParryAll.esp");
+    ParryPPlayerSSound = dataHandler->LookupForm<RE::BGSExplosion>(0x822, "ParryAll.esp");
+    ParryNNPCSound = dataHandler->LookupForm<RE::BGSExplosion>(0x823, "ParryAll.esp");
+    ParryNNPCSSound = dataHandler->LookupForm<RE::BGSExplosion>(0x824, "ParryAll.esp");
+    ParryPNPCSound = dataHandler->LookupForm<RE::BGSExplosion>(0x825, "ParryAll.esp");
+    ParryPNPCSSound = dataHandler->LookupForm<RE::BGSExplosion>(0x826, "ParryAll.esp");
+
+
+
+    //Marker = dataHandler->LookupForm<RE::TESObjectACTI>(0x81E, "ParryAll.esp");
 
     // Para o marker (verifique se o final é 5901 mesmo no xEdit)
 
@@ -344,7 +295,9 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                     a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryPerfectSoundShield");
+                if (playSounds && Sink::ParryPPlayerSSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerSSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
             else if (a_type == Sink::ParryType::Normal) {
                 if (showVisuals) {
@@ -352,17 +305,21 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                     a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryNormalSoundShield");
+                if (playSounds && Sink::ParryNPlayerSSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerSSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
         }
-        else {
+        else { // WEAPON
             if (a_type == Sink::ParryType::Perfect) {
                 if (showVisuals) {
                     a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryPerfectSound");
+                if (playSounds && Sink::ParryPPlayerSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
             else if (a_type == Sink::ParryType::Normal) {
                 if (showVisuals) {
@@ -370,11 +327,13 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                     a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryNormalSound");
+                if (playSounds && Sink::ParryNPlayerSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
         }
     }
-    else {
+    else { // NPC
         if (nodeName == "SHIELD") {
             if (a_type == Sink::ParryType::Perfect) {
                 if (showVisuals) {
@@ -382,7 +341,9 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                     a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryPerfectSoundShield");
+                if (playSounds && Sink::ParryPNPCSSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCSSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
             else if (a_type == Sink::ParryType::Normal) {
                 if (showVisuals) {
@@ -390,17 +351,21 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                     a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryNormalSoundShield");
+                if (playSounds && Sink::ParryNNPCSSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCSSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
         }
-        else {
+        else { // WEAPON
             if (a_type == Sink::ParryType::Perfect) {
                 if (showVisuals) {
                     a_blocker->PlaceObjectAtMe(Sink::ParryPNPC, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryPNPC2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryPNPC3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryPerfectSound");
+                if (playSounds && Sink::ParryPNPCSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
             else if (a_type == Sink::ParryType::Normal) {
                 if (showVisuals) {
@@ -408,44 +373,74 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
                     a_blocker->PlaceObjectAtMe(Sink::ParryNNPC2, false)->MoveToNode(a_blocker, nodeName);
                     a_blocker->PlaceObjectAtMe(Sink::ParryNNPC3, false)->MoveToNode(a_blocker, nodeName);
                 }
-                if (playSounds) RE::PlaySound("ParryNormalSound");
+                if (playSounds && Sink::ParryNNPCSound) {
+                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCSound, false)->MoveToNode(a_blocker, nodeName);
+                }
             }
         }
     }
 }
 
-RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*)
+void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
 {
-    {
-        if (!a_event || !a_event->loaded) return RE::BSEventNotifyControl::kContinue;
+    if (attempts > 20) {
+        SKSE::log::critical("[Actor3DLoadEventHandler] Desistindo após {} tentativas para o ator {:08X}.", attempts, actor->GetFormID());
+        return;
+    }
 
-        if (a_event->formID == 0x14) {
-            // Evita spam de requests se já estiver processando
-            if (isProcessingRegistration) return RE::BSEventNotifyControl::kContinue;
-            isProcessingRegistration = true;
+    std::thread([actor, attempts]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            SKSE::GetTaskInterface()->AddTask([]() {
-                auto* player = RE::PlayerCharacter::GetSingleton();
-                if (player) {
-                    // Verifica se o Graph Manager existe antes de prosseguir
-                    RE::BSTSmartPointer<RE::BSAnimationGraphManager> graphManager;
-                    player->GetAnimationGraphManager(graphManager);
+        SKSE::GetTaskInterface()->AddTask([actor, attempts]() {
+            if (!actor) return;
 
-                    if (graphManager) {
-                        if(player->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
-                            SKSE::log::info("[Actor3DLoadEventHandler] Sink do PLAYER reconectada com sucesso.");
-                        }
-                        
+            RE::BSTSmartPointer<RE::BSAnimationGraphManager> graphManager;
+            actor->GetAnimationGraphManager(graphManager);
+
+            if (graphManager) {
+                SKSE::log::info("[Actor3DLoadEventHandler] Graph encontrado para {:08X}. Reconectando...", actor->GetFormID());
+
+                if (actor->IsPlayerRef()) {
+                    // --- LÓGICA DO PLAYER ---
+                    // Remove e Adiciona a Sink do Player
+                    actor->RemoveAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton());
+                    if (actor->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
+                        SKSE::log::info("[Actor3DLoadEventHandler] Sink do PLAYER reconectada com sucesso.");
                     }
-                    else {
-                        isProcessingRegistration = false;
-                    }
+
                 }
                 else {
-                    isProcessingRegistration = false;
+
+                    Sink::NpcCombatTracker::UnregisterSink(actor);
+                    Sink::NpcCombatTracker::RegisterSink(actor);
+
+                    SKSE::log::info("[Actor3DLoadEventHandler] Sink de NPC reconectada (via CombatTracker).");
                 }
-                });
-        }
+            }
+            else {
+                // Graph ainda nulo, tenta de novo
+                ScheduleSinkRegistration(actor, attempts + 1);
+            }
+            });
+        }).detach();
+}
+
+RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*)
+{
+    if (!a_event || !a_event->loaded) {
         return RE::BSEventNotifyControl::kContinue;
     }
+
+    // Em vez de pegar o Player Singleton, buscamos o formulário pelo ID do evento
+    auto* form = RE::TESForm::LookupByID(a_event->formID);
+    if (!form) return RE::BSEventNotifyControl::kContinue;
+
+    // Tentamos converter para Ator. Se não for ator (ex: uma parede), ignoramos.
+    auto* actor = form->As<RE::Actor>();
+
+    if (actor) {
+        ScheduleSinkRegistration(actor, 0);
+    }
+
+    return RE::BSEventNotifyControl::kContinue;
 }

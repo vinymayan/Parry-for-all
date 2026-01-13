@@ -8,16 +8,20 @@ public:
     {
         auto& trampoline = SKSE::GetTrampoline();
         constexpr size_t size_per_hook = 14;
-        constexpr size_t NUM_TRAMPOLINE_HOOKS = 1;
+        constexpr size_t NUM_TRAMPOLINE_HOOKS = 2;
         trampoline.create(size_per_hook * NUM_TRAMPOLINE_HOOKS);
         REL::Relocation<uintptr_t> hook{ RELOCATION_ID(37673, 38627) };  //140628C20       14064E760
         _ProcessHit = trampoline.write_call<5>(hook.address() + REL::Relocate(0x3C0, 0x4A8), processHit);
+        //REL::Relocation<std::uintptr_t> OnMeleeHitBase{ REL::RelocationID(37650, 38603) };
+        //_OnMeleeHit = trampoline.write_call<5>(OnMeleeHitBase.address() + REL::Relocate(0x38B, 0x45A), OnMeleeHit);
         logger::info("hook:OnMeleeHit");
     }
 
 private:
     static void processHit(RE::Actor* victim, RE::HitData& hitData);
     static inline REL::Relocation<decltype(processHit)> _ProcessHit;  //140626400       14064BAB0
+    //static void OnMeleeHit(RE::Actor* attacker, RE::Actor* target, std::int64_t a_int1, bool a_bool,void* a_unkptr);
+    //static inline REL::Relocation<decltype(OnMeleeHit)> _OnMeleeHit;  //140626400       14064BAB0
 };
 
 class Hook_OnProjectileCollision

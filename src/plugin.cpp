@@ -32,10 +32,6 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     SetupLog();
     logger::info("Plugin loaded");
-    auto& trampoline = SKSE::GetTrampoline();
-    constexpr size_t size_per_hook = 14;
-    constexpr size_t NUM_TRAMPOLINE_HOOKS = 4;
-    trampoline.create(size_per_hook * NUM_TRAMPOLINE_HOOKS);
     SKSE::Init(skse);
     SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 

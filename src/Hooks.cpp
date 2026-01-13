@@ -109,6 +109,14 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 	_ProcessHit(victim, hitData);
 }
 
+//void Hook_OnMeleeHit::OnMeleeHit(RE::Actor* attacker, RE::Actor* target, std::int64_t a_int1, bool a_bool,
+//	void* a_unkptr)
+//{
+//	logger::info("OnMeleeHit called: attacker {}, target {}", attacker ? attacker->GetName() : "null",
+//		target ? target->GetName() : "null");
+//	return _OnMeleeHit(attacker, target, a_int1, a_bool, a_unkptr);
+//}
+
 void SetRotationFromVector(RE::Projectile* a_projectile, const RE::NiPoint3& a_direction) {
 	if (!a_projectile || !a_projectile->Get3D()) return;
 

@@ -37,13 +37,22 @@ namespace Sink {
      inline RE::BGSExplosion* ParryPNPCS2 = nullptr;
      inline RE::BGSExplosion* ParryPNPCS3 = nullptr;
 
+     inline RE::BGSExplosion* ParryNPlayerSound = nullptr;
+     inline RE::BGSExplosion* ParryNPlayerSSound = nullptr;
+     inline RE::BGSExplosion* ParryPPlayerSound = nullptr;
+     inline RE::BGSExplosion* ParryPPlayerSSound = nullptr;
+     inline RE::BGSExplosion* ParryNNPCSound = nullptr;
+     inline RE::BGSExplosion* ParryNNPCSSound = nullptr;
+     inline RE::BGSExplosion* ParryPNPCSound = nullptr;
+     inline RE::BGSExplosion* ParryPNPCSSound = nullptr;
+
 
      inline RE::TESObjectACTI* Marker = nullptr;
 
   
     extern inline RE::BGSSoundDescriptorForm* g_ParrySound = nullptr;
     extern inline RE::TESObjectACTI* g_ParryVisualActivator = nullptr;
-    inline bool isProcessingRegistration = true;
+    inline bool isProcessingRegistration = false;
 
     class PC3DLoadEventHandler : public RE::BSTEventSink<RE::TESObjectLoadedEvent> {
     public:
@@ -105,15 +114,8 @@ namespace Sink {
 
     void PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::ParrySource a_source, Sink::ParryType a_type);
 
-    class HitEventHandler : public RE::BSTEventSink<RE::TESHitEvent> {
-    public:
-        static HitEventHandler* GetSingleton() {
-            static HitEventHandler singleton;
-            return &singleton;
-        }
-        RE::BSEventNotifyControl ProcessEvent(const RE::TESHitEvent* a_event,
-            RE::BSTEventSource<RE::TESHitEvent>* a_source) override;
-    };
+    void ScheduleSinkRegistration(RE::Actor* actor, int attempts);
+
 
     class NpcCycleSink : public RE::BSTEventSink<RE::BSAnimationGraphEvent> {
     public:
