@@ -1,18 +1,12 @@
 #include "Hooks.h"
 #include "Settings.h"
-
+#include "MCP.h"
 
 void ApplyStagger(RE::Actor* a_target, float a_magnitude, int a_parryValue) {
 	if (!a_target) return;
 	a_target->SetGraphVariableInt("GotParriedCMF", a_parryValue);
 	a_target->SetGraphVariableFloat("staggerMagnitude", a_magnitude);
 	a_target->NotifyAnimationGraph("staggerStart");
-	
-	/*SKSE::GetTaskInterface()->AddTask([a_target]() {
-		if (a_target) {
-			a_target->SetGraphVariableInt("GotParriedCMF", 0);
-		}
-		});*/
 }
 
 RE::ActorValue GetAVFromCostType(ParrySettings::CostType a_type) {
@@ -201,7 +195,7 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 {
 	auto player = RE::PlayerCharacter::GetSingleton();
 	bool isPlayer = (a_blocker == player);
-	logger::info("Actor {} is blocking projectile {}", a_blocker->GetName(), a_projectile->GetName());
+	//logger::info("Actor {} is blocking projectile {}", a_blocker->GetName(), a_projectile->GetName());
 	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(a_blocker->GetFormID());
 	if (type == Sink::ParryType::None) return false;
 
@@ -257,8 +251,8 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		auto shooter = a_projectile->GetProjectileRuntimeData().shooter.get().get();
 		if (shooter && shooter->As<RE::Actor>()) {
 			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
-			float magnitude = (type == Sink::ParryType::Perfect ? 1.0f : 0.5f);
-			ApplyStagger(shooter->As<RE::Actor>(), magnitude, parryVal);
+			shooter->SetGraphVariableInt("ShouldStaggerCMF", parryVal);
+			logger::debug("Shooter {} marked for pending stagger (Value: {})", shooter->GetName(), parryVal);
 		}
 	}
 
@@ -285,7 +279,8 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		ReflectProjectileBack(a_blocker, a_projectile, a_projectile_collidable);
 	}
 	else {
-		a_projectile->SetDelete(true); // Apenas anula o projétil
+		RE::Offset::destroyProjectile(a_projectile);
+		//a_projectile->SetDelete(true); // Apenas anula o projétil
 	}
 
 	return true;
@@ -297,15 +292,35 @@ inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointColle
 		for (auto& hit : a_AllCdPointCollector->hits) {
 			auto refrA = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableA);
 			auto refrB = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableB);
+			RE::Actor* target = nullptr;
+			RE::hkpCollidable* projectileCollidable = nullptr;
+
 			if (refrA && refrA->formType == RE::FormType::ActorCharacter) {
-				if (processProjectileBlock(refrA->As<RE::Actor>(), a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableB))) {
-					return true;
-				};
+				target = refrA->As<RE::Actor>();
+				projectileCollidable = const_cast<RE::hkpCollidable*>(hit.rootCollidableB);
 			}
-			if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
-				if (processProjectileBlock(refrB->As<RE::Actor>(), a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableA))) {
-					return true;
-				};
+			else if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
+				target = refrB->As<RE::Actor>();
+				projectileCollidable = const_cast<RE::hkpCollidable*>(hit.rootCollidableA);
+			}
+
+			if (target) {
+				// 1. Tenta processar como um bloqueio/parry
+				if (processProjectileBlock(target, a_projectile, projectileCollidable)) {
+					return true; // Se bloqueou, ignora a colisão original
+				}
+
+				// 2. Se NÃO foi um bloqueio, verifica se este ator tem um stagger pendente (ShouldStaggerCMF)
+				int pendingStagger = 0;
+				if (target->GetGraphVariableInt("ShouldStaggerCMF", pendingStagger) && pendingStagger > 0) {
+					float magnitude = (pendingStagger == 2) ? 1.0f : 0.5f;
+
+					logger::debug("Applying pending stagger to {} (Type: {})", target->GetName(), pendingStagger);
+					ApplyStagger(target, magnitude, pendingStagger);
+
+					// Reseta para 0 após aplicar
+					target->SetGraphVariableInt("ShouldStaggerCMF", 0);
+				}
 			}
 		}
 	}
