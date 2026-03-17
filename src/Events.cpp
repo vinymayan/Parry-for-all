@@ -2,6 +2,7 @@
 #include "Settings.h"
 #include "RE/Skyrim.h"
 #include "SKSE/SKSE.h"
+#include "DelayedDispatcher.h"
 
 RE::TESIdleForm* anim = nullptr;
 RE::TESEffectShader* parry = nullptr;
@@ -37,7 +38,7 @@ RE::BSEventNotifyControl Sink::NpcCombatTracker::ProcessEvent(const RE::TESComba
 
     auto actor = a_event->actor.get();
     auto* npc = actor->As<RE::Actor>();
-    if (npc && npc != RE::PlayerCharacter::GetSingleton()) {  // Garante que é um ator válido
+    if (npc && npc != RE::PlayerCharacter::GetSingleton()) {  // Garante que ï¿½ um ator vï¿½lido
         switch (a_event->newState.get()) {
         case RE::ACTOR_COMBAT_STATE::kCombat:
             NpcCombatTracker::RegisterSink(npc);
@@ -56,7 +57,7 @@ void Sink::NpcCombatTracker::RegisterSink(RE::Actor* a_actor)
     if (g_trackedNPCs.find(a_actor->GetFormID()) == g_trackedNPCs.end()) {
         a_actor->AddAnimationGraphEventSink(&g_npcSink);
         g_trackedNPCs.insert(a_actor->GetFormID());
-        //SKSE::log::info("[NpcCombatTracker] Começando a rastrear animações do ator {:08X}", a_actor->GetFormID());
+        //SKSE::log::info("[NpcCombatTracker] Comeï¿½ando a rastrear animaï¿½ï¿½es do ator {:08X}", a_actor->GetFormID());
     }
 }
 
@@ -68,29 +69,29 @@ void Sink::NpcCombatTracker::UnregisterSink(RE::Actor* a_actor)
     if (g_trackedNPCs.find(a_actor->GetFormID()) != g_trackedNPCs.end()) {
         a_actor->RemoveAnimationGraphEventSink(&g_npcSink);
         g_trackedNPCs.erase(a_actor->GetFormID());
-        //SKSE::log::info("[NpcCombatTracker] Parando de rastrear animações do ator {:08X}", a_actor->GetFormID());
+        //SKSE::log::info("[NpcCombatTracker] Parando de rastrear animaï¿½ï¿½es do ator {:08X}", a_actor->GetFormID());
     }
 }
 
 void Sink::NpcCombatTracker::RegisterSinksForExistingCombatants()
 {
-    SKSE::log::info("[NpcCombatTracker] Verificando NPCs já em combate após carregar o jogo...");
+    SKSE::log::info("[NpcCombatTracker] Verificando NPCs jï¿½ em combate apï¿½s carregar o jogo...");
 
     auto* processLists = RE::ProcessLists::GetSingleton();
     if (!processLists) {
-        SKSE::log::warn("[NpcCombatTracker] Não foi possível obter ProcessLists.");
+        SKSE::log::warn("[NpcCombatTracker] Nï¿½o foi possï¿½vel obter ProcessLists.");
         return;
     }
 
-    // Itera sobre todos os atores que estão "ativos" no jogo
+    // Itera sobre todos os atores que estï¿½o "ativos" no jogo
     for (auto& actorHandle : processLists->highActorHandles) {
         if (auto actor = actorHandle.get().get()) {
-            // A função IsInCombat() nos diz se o ator já está em um estado de combate
+            // A funï¿½ï¿½o IsInCombat() nos diz se o ator jï¿½ estï¿½ em um estado de combate
             if (!actor->IsPlayerRef()) {
                 if (actor->IsInCombat()) {
-                    SKSE::log::info("[NpcCombatTracker] Ator '{}' ({:08X}) já está em combate. Registrando sink...",
+                    SKSE::log::info("[NpcCombatTracker] Ator '{}' ({:08X}) jï¿½ estï¿½ em combate. Registrando sink...",
                         actor->GetName(), actor->GetFormID());
-                    // Usamos a mesma função de registro que já existe!
+                    // Usamos a mesma funï¿½ï¿½o de registro que jï¿½ existe!
                     RegisterSink(actor);
                 }
             }
@@ -98,7 +99,7 @@ void Sink::NpcCombatTracker::RegisterSinksForExistingCombatants()
         }
     }
 
-    SKSE::log::info("[NpcCombatTracker] Verificação concluída.");
+    SKSE::log::info("[NpcCombatTracker] Verificaï¿½ï¿½o concluï¿½da.");
 }
 
 RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationGraphEvent* a_event, RE::BSTEventSource<RE::BSAnimationGraphEvent>*)
@@ -154,7 +155,7 @@ Sink::ParryType Sink::ParryTimerManager::GetParryType(RE::FormID a_formID) {
     long perfectMS = isPlayer ? ParrySettings::playerPerfectParryMS : ParrySettings::npcPerfectParryMS;
     long normalMS = isPlayer ? ParrySettings::playerNormalParryMS : ParrySettings::npcNormalParryMS;
 
-    // Apenas validamos o tempo. Se for maior que a janela, o parry "não existe"
+    // Apenas validamos o tempo. Se for maior que a janela, o parry "nï¿½o existe"
     if (duration <= perfectMS) return ParryType::Perfect;
     if (duration <= normalMS) return ParryType::Normal;
 
@@ -172,7 +173,7 @@ void Sink::InitializeForms() {
     auto* dataHandler = RE::TESDataHandler::GetSingleton();
     if (!dataHandler) return;
 
-    // O correto é pegar os últimos 6 dígitos do xEdit, ignorando os 2 primeiros (load order)
+    // O correto ï¿½ pegar os ï¿½ltimos 6 dï¿½gitos do xEdit, ignorando os 2 primeiros (load order)
     ParryNPlayer = dataHandler->LookupForm<RE::BGSExplosion>(0x800, "ParryAll.esp");
     ParryNPlayer2 = dataHandler->LookupForm<RE::BGSExplosion>(0x802, "ParryAll.esp");
     ParryNPlayer3 = dataHandler->LookupForm<RE::BGSExplosion>(0x814, "ParryAll.esp");
@@ -212,10 +213,10 @@ void Sink::InitializeForms() {
 
     //Marker = dataHandler->LookupForm<RE::TESObjectACTI>(0x81E, "ParryAll.esp");
 
-    // Para o marker (verifique se o final é 5901 mesmo no xEdit)
+    // Para o marker (verifique se o final ï¿½ 5901 mesmo no xEdit)
 
     if (!ParryNPlayer) {
-        SKSE::log::critical("FALHA: não encontrado em ParryAll.esp!");
+        SKSE::log::critical("FALHA: nï¿½o encontrado em ParryAll.esp!");
     }
     else {
         SKSE::log::info("ParryEffects carregado com sucesso.");
@@ -228,12 +229,12 @@ RE::TESEffectShader* Sink::GetEffectShaderByFormID(RE::FormID a_formID, const st
     auto* dataHandler = RE::TESDataHandler::GetSingleton();
     auto* lookupForm = dataHandler ? dataHandler->LookupForm(a_formID, a_pluginName) : nullptr;
 
-    // 0x55 na sua lista é EffectShader (TESEffectShader)
+    // 0x55 na sua lista ï¿½ EffectShader (TESEffectShader)
     if (lookupForm && lookupForm->GetFormType() == RE::FormType::EffectShader) {
         return static_cast<RE::TESEffectShader*>(lookupForm);
     }
 
-    SKSE::log::warn("Não foi possível encontrar EffectShader 0x{:X} no plugin {}", a_formID, a_pluginName);
+    SKSE::log::warn("Nï¿½o foi possï¿½vel encontrar EffectShader 0x{:X} no plugin {}", a_formID, a_pluginName);
     return nullptr;
 }
 
@@ -252,18 +253,16 @@ void Sink::ApplySlowTime(float a_multiplier)
 
 void Sink::ResetTimeTask()
 {
-    std::thread([]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(ParrySettings::slowTimeDurationMS));
-
+    Utils::DelayedDispatcher::Get().PostDelayed(std::chrono::milliseconds(ParrySettings::slowTimeDurationMS), []() {
         // Retorna para a thread principal do SKSE para evitar instabilidade
         SKSE::GetTaskInterface()->AddTask([]() {
             auto* timer = RE::BSTimer::GetSingleton();
             if (timer) {
                 timer->SetGlobalTimeMultiplier(1.0f, true);
-				g_IsSlowed = false;
+                g_IsSlowed = false;
             }
-            });
-        }).detach();
+        });
+    });
 
 }
 
@@ -384,45 +383,48 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
 void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
 {
     if (attempts > 20) {
-        SKSE::log::critical("[Actor3DLoadEventHandler] Desistindo após {} tentativas para o ator {:08X}.", attempts, actor->GetFormID());
+        SKSE::log::critical("[Actor3DLoadEventHandler] Desistindo apï¿½s {} tentativas para o ator {:08X}.", attempts, actor->GetFormID());
         return;
     }
-
-    std::thread([actor, attempts]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        SKSE::GetTaskInterface()->AddTask([actor, attempts]() {
-            if (!actor) return;
-
+    
+    auto actorHandle = actor->CreateRefHandle();
+    
+    Utils::DelayedDispatcher::Get().PostDelayed(std::chrono::milliseconds(100), [actorHandle, attempts]() {
+        SKSE::GetTaskInterface()->AddTask([actorHandle, attempts]() {
+            if (!actorHandle) return;
+            if (!actorHandle.get()) return;
+                    
+            auto actor = actorHandle.get();
+        
             RE::BSTSmartPointer<RE::BSAnimationGraphManager> graphManager;
             actor->GetAnimationGraphManager(graphManager);
-
+        
             if (graphManager) {
                 SKSE::log::info("[Actor3DLoadEventHandler] Graph encontrado para {:08X}. Reconectando...", actor->GetFormID());
-
+        
                 if (actor->IsPlayerRef()) {
-                    // --- LÓGICA DO PLAYER ---
+                    // --- Lï¿½GICA DO PLAYER ---
                     // Remove e Adiciona a Sink do Player
                     actor->RemoveAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton());
                     if (actor->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
                         SKSE::log::info("[Actor3DLoadEventHandler] Sink do PLAYER reconectada com sucesso.");
                     }
-
+        
                 }
                 else {
-
-                    Sink::NpcCombatTracker::UnregisterSink(actor);
-                    Sink::NpcCombatTracker::RegisterSink(actor);
-
+        
+                    Sink::NpcCombatTracker::UnregisterSink(actor.get());
+                    Sink::NpcCombatTracker::RegisterSink(actor.get());
+        
                     SKSE::log::info("[Actor3DLoadEventHandler] Sink de NPC reconectada (via CombatTracker).");
                 }
             }
             else {
                 // Graph ainda nulo, tenta de novo
-                ScheduleSinkRegistration(actor, attempts + 1);
+                ScheduleSinkRegistration(actor.get(), attempts + 1);
             }
             });
-        }).detach();
+    });
 }
 
 RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*)
@@ -431,11 +433,11 @@ RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESO
         return RE::BSEventNotifyControl::kContinue;
     }
 
-    // Em vez de pegar o Player Singleton, buscamos o formulário pelo ID do evento
+    // Em vez de pegar o Player Singleton, buscamos o formulï¿½rio pelo ID do evento
     auto* form = RE::TESForm::LookupByID(a_event->formID);
     if (!form) return RE::BSEventNotifyControl::kContinue;
 
-    // Tentamos converter para Ator. Se não for ator (ex: uma parede), ignoramos.
+    // Tentamos converter para Ator. Se nï¿½o for ator (ex: uma parede), ignoramos.
     auto* actor = form->As<RE::Actor>();
 
     if (actor) {
