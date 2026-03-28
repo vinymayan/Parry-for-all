@@ -1,4 +1,4 @@
-#include "Settings.h"
+﻿#include "Settings.h"
 
 const char* ParryPath = "Data/SKSE/Plugins/ParryAll.json";
 
@@ -53,6 +53,14 @@ void ParrySettings::Save() {
     doc.AddMember("slowTimeMultiplier", slowTimeMultiplier, allocator);
     doc.AddMember("slowTimeDurationMS", slowTimeDurationMS, allocator);
 
+    doc.AddMember("playerParryCommitmentEnabled", playerParryCommitmentEnabled, allocator);
+    doc.AddMember("playerParryCommitmentMS", playerParryCommitmentMS, allocator);
+    doc.AddMember("playerCommitmentReductionNormalMS", playerCommitmentReductionNormalMS, allocator);
+    doc.AddMember("playerCommitmentReductionPerfectMS", playerCommitmentReductionPerfectMS, allocator);
+
+    doc.AddMember("playerReflectSkillScaling", playerReflectSkillScaling, allocator);
+    doc.AddMember("npcReflectSkillScaling", npcReflectSkillScaling, allocator);
+
     FILE* fp = nullptr;
     fopen_s(&fp, ParryPath, "wb");
     if (fp) {
@@ -92,6 +100,44 @@ void ParrySettings::PlayerMenu()
             }
 
             ImGuiMCP::Spacing();
+            if (ImGuiMCP::Checkbox("Enable Parry Commitment", &playerParryCommitmentEnabled)) changed = true;
+            if (playerParryCommitmentEnabled) {
+                ImGuiMCP::Indent();
+
+                // Slider 1: Commitment Time
+                ImGuiMCP::SetNextItemWidth(200.0f);
+                if (ImGuiMCP::SliderInt("Commitment Time (ms)", &playerParryCommitmentMS, 100, 2000)) changed = true;
+                ImGuiMCP::SameLine();
+                ImGuiMCP::SetNextItemWidth(60.0f);
+                if (ImGuiMCP::InputInt("##CommitPrecise", &playerParryCommitmentMS, 0, 0)) {
+                    playerParryCommitmentMS = std::clamp(playerParryCommitmentMS, 100, 2000);
+                    changed = true;
+                }
+
+                // Slider 2: Reduction Normal
+                ImGuiMCP::SetNextItemWidth(200.0f);
+                if (ImGuiMCP::SliderInt("Reduction on Normal Parry (ms)", &playerCommitmentReductionNormalMS, 0, 2000)) changed = true;
+                ImGuiMCP::SameLine();
+                ImGuiMCP::SetNextItemWidth(60.0f);
+                if (ImGuiMCP::InputInt("##ReducNormPrecise", &playerCommitmentReductionNormalMS, 0, 0)) {
+                    playerCommitmentReductionNormalMS = std::clamp(playerCommitmentReductionNormalMS, 0, 2000);
+                    changed = true;
+                }
+
+                // Slider 3: Reduction Perfect
+                ImGuiMCP::SetNextItemWidth(200.0f);
+                if (ImGuiMCP::SliderInt("Reduction on Perfect Parry (ms)", &playerCommitmentReductionPerfectMS, 0, 2000)) changed = true;
+                ImGuiMCP::SameLine();
+                ImGuiMCP::SetNextItemWidth(60.0f);
+                if (ImGuiMCP::InputInt("##ReducPerfPrecise", &playerCommitmentReductionPerfectMS, 0, 0)) {
+                    playerCommitmentReductionPerfectMS = std::clamp(playerCommitmentReductionPerfectMS, 0, 2000);
+                    changed = true;
+                }
+
+                ImGuiMCP::Unindent();
+            }
+
+            ImGuiMCP::Spacing();
             if (ImGuiMCP::Combo("Visual Effects", &playerVisualMode, ReflectOptions)) changed = true;
             if (ImGuiMCP::Combo("Sound Effects", &playerSoundMode, ReflectOptions)) changed = true;
             ImGuiMCP::TextDisabled("Advanced Features");
@@ -99,9 +145,11 @@ void ParrySettings::PlayerMenu()
             if (ImGuiMCP::Combo("Reflect Melee Damage", &playerReflectMeleeMode, ReflectOptions)) changed = true;
             if (playerReflectMeleeMode > 0) {
                 ImGuiMCP::Indent();
+                if (ImGuiMCP::Checkbox("Reflect Scales with Skill", &playerReflectSkillScaling)) changed = true; // ADICIONADO
                 if (ImGuiMCP::Combo("Reflect Cost Type", (int*)&playerReflectMeleeCostType, CostOptionsUI)) changed = true;
                 ImGuiMCP::Unindent();
             }
+
             // Arrow
             if (ImGuiMCP::Combo("Parry Arrows", &playerArrowMode, ModeOptions)) changed = true;
             if (playerArrowMode > 0) {
@@ -196,9 +244,11 @@ void ParrySettings::NPCMenu()
             if (ImGuiMCP::Combo("NPC Reflect Melee Damage", &npcReflectMeleeMode, ReflectOptions)) changed = true;
             if (npcReflectMeleeMode > 0) {
                 ImGuiMCP::Indent();
+                if (ImGuiMCP::Checkbox("NPC Reflect Scales with Skill", &npcReflectSkillScaling)) changed = true; // ADICIONADO
                 if (ImGuiMCP::Combo("NPC Reflect Cost Type", (int*)&npcReflectMeleeCostType, CostOptionsUI)) changed = true;
                 ImGuiMCP::Unindent();
             }
+
             // NPC Arrow
             if (ImGuiMCP::Combo("NPC Parry Arrows", &npcArrowMode, ModeOptions)) changed = true;
             if (npcArrowMode > 0) {
@@ -294,6 +344,14 @@ void ParrySettings::Load() {
             if (doc.HasMember("npcParryPlayerEnabled")) npcParryPlayerEnabled = doc["npcParryPlayerEnabled"].GetBool();
             if (doc.HasMember("slowTimeMultiplier")) slowTimeMultiplier = doc["slowTimeMultiplier"].GetFloat();
             if (doc.HasMember("slowTimeDurationMS")) slowTimeDurationMS = doc["slowTimeDurationMS"].GetInt();
+
+            if (doc.HasMember("playerParryCommitmentEnabled")) playerParryCommitmentEnabled = doc["playerParryCommitmentEnabled"].GetBool();
+            if (doc.HasMember("playerParryCommitmentMS")) playerParryCommitmentMS = doc["playerParryCommitmentMS"].GetInt();
+            if (doc.HasMember("playerCommitmentReductionNormalMS")) playerCommitmentReductionNormalMS = doc["playerCommitmentReductionNormalMS"].GetInt();
+            if (doc.HasMember("playerCommitmentReductionPerfectMS")) playerCommitmentReductionPerfectMS = doc["playerCommitmentReductionPerfectMS"].GetInt();
+
+            if (doc.HasMember("playerReflectSkillScaling")) playerReflectSkillScaling = doc["playerReflectSkillScaling"].GetBool();
+            if (doc.HasMember("npcReflectSkillScaling")) npcReflectSkillScaling = doc["npcReflectSkillScaling"].GetBool();
         }
     }
 }

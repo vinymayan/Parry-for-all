@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "Events.h"
 
 class Hook_OnMeleeHit
@@ -7,9 +7,11 @@ public:
     static void install()
     {
         auto& trampoline = SKSE::GetTrampoline();
+       
         constexpr size_t size_per_hook = 14;
-        constexpr size_t NUM_TRAMPOLINE_HOOKS = 2;
-        trampoline.create(size_per_hook * NUM_TRAMPOLINE_HOOKS);
+        constexpr size_t NUM_TRAMPOLINE_HOOKS = 3;
+        SKSE::AllocTrampoline(size_per_hook * NUM_TRAMPOLINE_HOOKS);
+        //trampoline.create(size_per_hook * NUM_TRAMPOLINE_HOOKS);
         REL::Relocation<uintptr_t> hook{ RELOCATION_ID(37673, 38627) };  //140628C20       14064E760
         _ProcessHit = trampoline.write_call<5>(hook.address() + REL::Relocate(0x3C0, 0x4A8), processHit);
         //REL::Relocation<std::uintptr_t> OnMeleeHitBase{ REL::RelocationID(37650, 38603) };
@@ -68,7 +70,7 @@ private:
 
 //template <typename FormType>
 //class HandleDamageHook : public FormType {
-//    // Movemos a implementação para cá (dentro da classe ou logo abaixo)
+//    // Movemos a implementaÃ§Ã£o para cÃ¡ (dentro da classe ou logo abaixo)
 //    static void thunk(FormType* a_this, RE::Actor* a_attacker, float a_dmg) {
 //        RE::Actor* victim = a_this->As<RE::Actor>();
 //        Sink::ParryType type = Sink::ParryTimerManager::GetParryType(victim->GetFormID());
