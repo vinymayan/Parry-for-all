@@ -2,6 +2,7 @@
 #include "Settings.h"
 #include "RE/Skyrim.h"
 #include "SKSE/SKSE.h"
+#include "DelayedDispatcher.h"
 
 RE::TESIdleForm* anim = nullptr;
 RE::TESEffectShader* parry = nullptr;
@@ -107,52 +108,6 @@ void Sink::NpcCombatTracker::RegisterSinksForExistingCombatants()
     }
 
     SKSE::log::info("[NpcCombatTracker] Verificação concluída.");
-}
-
-void GetActorExpression(RE::Actor* a_actor) {
-    // 1. Verificação de segurança
-    if (!a_actor) {
-        SKSE::log::warn("Tentativa de ler expressão de um actor nulo.");
-        return;
-    }
-
-    // 2. Obtém os dados de FaceGen
-    auto* faceData = a_actor->GetFaceGenAnimationData();
-
-    if (!faceData) {
-        // Alguns actors (como criaturas ou manequins sem face dinâmica) podem retornar nulo
-        return;
-    }
-
-    // 3. Thread Safety: Essencial para evitar race conditions com a thread de animação
-    RE::BSSpinLockGuard locker(faceData->lock);
-
-    // 4. Identifica a Expressão Ativa Principal (Enum Index)
-    std::uint32_t activeExprId = faceData->GetActiveExpression();
-    const char* activeName = RE::BSFaceGenKeyframeMultiple::GetExpressionName(activeExprId);
-
-    // 5. Acessa os valores reais (intensidades)
-    // 'expression3' armazena o estado final visível após todos os blends
-    auto& keyframe = faceData->expression3;
-
-    if (keyframe.values && keyframe.count > 0) {
-
-        SKSE::log::info("Actor: {} | Expressão Dominante: {} (ID: {})",
-            a_actor->GetName(), activeName, activeExprId);
-
-        // Percorre todas as possíveis expressões para capturar blends (ex: um NPC meio triste e meio bravo)
-        for (std::uint32_t i = 0; i < keyframe.count; ++i) {
-            float intensity = keyframe.values[i];
-
-            // Filtramos apenas o que é visível (acima de 1%)
-            if (intensity > 0.01f) {
-                const char* name = RE::BSFaceGenKeyframeMultiple::GetExpressionName(i);
-
-                SKSE::log::info(" -> [Ativa] {}: {:.2f}%",
-                    name ? name : "Desconhecida", intensity * 100.0f);
-            }
-        }
-    }
 }
 
 RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationGraphEvent* a_event, RE::BSTEventSource<RE::BSAnimationGraphEvent>*)
@@ -330,18 +285,16 @@ void Sink::ApplySlowTime(float a_multiplier)
 
 void Sink::ResetTimeTask()
 {
-    std::thread([]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(ParrySettings::slowTimeDurationMS));
-
+    Utils::DelayedDispatcher::Get().PostDelayed(std::chrono::milliseconds(ParrySettings::slowTimeDurationMS), []() {
         // Retorna para a thread principal do SKSE para evitar instabilidade
         SKSE::GetTaskInterface()->AddTask([]() {
             auto* timer = RE::BSTimer::GetSingleton();
             if (timer) {
                 timer->SetGlobalTimeMultiplier(1.0f, true);
-				g_IsSlowed = false;
+                g_IsSlowed = false;
             }
-            });
-        }).detach();
+        });
+    });
 
 }
 
@@ -465,19 +418,22 @@ void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
         SKSE::log::critical("[Actor3DLoadEventHandler] Desistindo após {} tentativas para o ator {:08X}.", attempts, actor->GetFormID());
         return;
     }
-
-    std::thread([actor, attempts]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        SKSE::GetTaskInterface()->AddTask([actor, attempts]() {
-            if (!actor) return;
-
+    
+    auto actorHandle = actor->CreateRefHandle();
+    
+    Utils::DelayedDispatcher::Get().PostDelayed(std::chrono::milliseconds(100), [actorHandle, attempts]() {
+        SKSE::GetTaskInterface()->AddTask([actorHandle, attempts]() {
+            if (!actorHandle) return;
+            if (!actorHandle.get()) return;
+                    
+            auto actor = actorHandle.get();
+        
             RE::BSTSmartPointer<RE::BSAnimationGraphManager> graphManager;
             actor->GetAnimationGraphManager(graphManager);
-
+        
             if (graphManager) {
                 SKSE::log::info("[Actor3DLoadEventHandler] Graph encontrado para {:08X}. Reconectando...", actor->GetFormID());
-
+        
                 if (actor->IsPlayerRef()) {
                     // --- LÓGICA DO PLAYER ---
                     // Remove e Adiciona a Sink do Player
@@ -485,22 +441,22 @@ void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
                     if (actor->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
                         SKSE::log::info("[Actor3DLoadEventHandler] Sink do PLAYER reconectada com sucesso.");
                     }
-
+        
                 }
                 else {
-
-                    Sink::NpcCombatTracker::UnregisterSink(actor);
-                    Sink::NpcCombatTracker::RegisterSink(actor);
-
+        
+                    Sink::NpcCombatTracker::UnregisterSink(actor.get());
+                    Sink::NpcCombatTracker::RegisterSink(actor.get());
+        
                     SKSE::log::info("[Actor3DLoadEventHandler] Sink de NPC reconectada (via CombatTracker).");
                 }
             }
             else {
                 // Graph ainda nulo, tenta de novo
-                ScheduleSinkRegistration(actor, attempts + 1);
+                ScheduleSinkRegistration(actor.get(), attempts + 1);
             }
             });
-        }).detach();
+    });
 }
 
 RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*)
