@@ -1,6 +1,7 @@
-#include "logger.h"
+﻿#include "logger.h"
 #include "Hooks.h"
 #include "Settings.h"
+#include "Serialization.h"
 
 const std::string dawn = "Dawnguard.esm";
 
@@ -15,7 +16,6 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         //HandleDamageHook<RE::Actor>::install();
         Hook_OnMeleeHit::install();
         Hook_OnProjectileCollision::install();
-
 		//Hook_OnMeleeCollision::install();
     }
     if (message->type == SKSE::MessagingInterface::kNewGame || message->type == SKSE::MessagingInterface::kPostLoadGame) {

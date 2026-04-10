@@ -1,10 +1,33 @@
-#include "Hooks.h"
+Ôªø#include "Hooks.h"
 #include "Settings.h"
 #include "MCP.h"
 
+RE::ActorValue GetAttackerMeleeSkill(RE::Actor* a_attacker) {
+	if (!a_attacker) return RE::ActorValue::kOneHanded;
+
+	// Checa a arma equipada na m√£o direita
+	auto weaponObj = a_attacker->GetEquippedObject(false);
+	if (weaponObj && weaponObj->IsWeapon()) {
+		auto weapon = weaponObj->As<RE::TESObjectWEAP>();
+		switch (weapon->GetWeaponType()) {
+		case RE::WEAPON_TYPE::kTwoHandAxe:
+		case RE::WEAPON_TYPE::kTwoHandSword:
+			return RE::ActorValue::kTwoHanded;
+		case RE::WEAPON_TYPE::kHandToHandMelee:
+			return RE::ActorValue::kUnarmedDamage;
+		case RE::WEAPON_TYPE::kBow:
+		case RE::WEAPON_TYPE::kCrossbow:
+			return RE::ActorValue::kArchery;
+		default:
+			return RE::ActorValue::kOneHanded;
+		}
+	}
+	return RE::ActorValue::kOneHanded; // Padr√£o caso n√£o consiga ler a arma
+}
+
 void ApplyStagger(RE::Actor* a_target, float a_magnitude, int a_parryValue) {
 	if (!a_target) return;
-	a_target->SetGraphVariableInt("GotParriedCMF", a_parryValue);
+	//a_target->SetGraphVariableInt("GotParriedCMF", a_parryValue);
 	a_target->SetGraphVariableFloat("staggerMagnitude", a_magnitude);
 	a_target->NotifyAnimationGraph("staggerStart");
 }
@@ -40,8 +63,7 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 	logger::debug("Melee hit processed");
 	auto aggressor = hitData.aggressor.get().get();
 	bool isUnblockble = false;
-	aggressor->GetGraphVariableBool("UnblockableAttackCMF", isUnblockble);
-
+	isUnblockble = Sink::UnblockableTracker::IsUnblockable(aggressor->GetFormID());
 	if (!victim || !aggressor || isUnblockble || !victim->IsBlocking()) {
 		_ProcessHit(victim, hitData);
 		return;
@@ -66,6 +88,19 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 		float cost = hitData.totalDamage;
 
 		if (HasEnoughResource(victim, costType, cost)) {
+			// 1. Notificar Graph Events para Defensor e Atacante
+			const char* parriedEvent = (type == Sink::ParryType::Perfect) ? "PerfParriedCMF" : "ParriedCMF";
+			const char* gotParriedEvent = (type == Sink::ParryType::Perfect) ? "GotPerfParriedCMF" : "GotParriedCMF";
+
+			victim->NotifyAnimationGraph(parriedEvent);
+			aggressor->NotifyAnimationGraph(gotParriedEvent);
+
+			// 2. Reduzir o tempo de Commitment
+			if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
+				int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
+				Sink::ParryTimerManager::ReduceCommitment(victim->GetFormID(), reduction);
+			}
+
 			auto player = RE::PlayerCharacter::GetSingleton();
 			if (!Sink::g_IsSlowed) {
 				if (victim == player || (aggressor == player && ParrySettings::npcParrySlowTime)) {
@@ -79,9 +114,28 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 				victim->AsActorValueOwner()->DamageActorValue(av, cost);
 			}
 
-			// Aplica Reflex„o: Devolve o dano ao atacante
+			// Aplica Reflex√£o: Devolve o dano ao atacante
 			if (shouldReflect) {
-				aggressor->DoDamage(hitData.totalDamage, aggressor, false);
+				float damageToReflect = hitData.totalDamage;
+				bool useSkillScaling = isPlayer ? ParrySettings::playerReflectSkillScaling : ParrySettings::npcReflectSkillScaling;
+
+				if (useSkillScaling) {
+					// 1. Pega a habilidade de bloqueio do defensor
+					float defSkill = victim->AsActorValueOwner()->GetActorValue(RE::ActorValue::kBlock);
+
+					// 2. Descobre qual habilidade o atacante est√° usando e pega o valor
+					RE::ActorValue atkSkillAV = GetAttackerMeleeSkill(aggressor);
+					float atkSkill = aggressor->AsActorValueOwner()->GetActorValue(atkSkillAV);
+
+					// 3. Calcula a diferen√ßa percentual. Usamos std::max(atkSkill, 1.0f) para evitar divis√£o por 0
+					// Se defSkill=100 e atkSkill=50, multiplier = 2.0 (Dano dobrado)
+					// Se defSkill=50 e atkSkill=100, multiplier = 0.5 (Dano pela metade)
+					float multiplier = defSkill / std::max(atkSkill, 1.0f);
+
+					damageToReflect *= multiplier;
+				}
+
+				aggressor->DoDamage(damageToReflect, aggressor, false);
 			}
 
 			// Aplica Stagger
@@ -94,12 +148,12 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 			// Efeitos Visuais
 			Sink::PlayParryEffects(victim, nullptr, Sink::ParrySource::Melee, type);
 			logger::debug("Parry succeeded on melee hit by actor {}", victim->GetName());
-			// Zera o dano que a vÌtima receberia
+			// Zera o dano que a v√≠tima receberia
 			hitData.totalDamage = 0;
 			return; // Bloqueio completo
 		}
 	}
-	// Chamar a funÁ„o original
+	// Chamar a fun√ß√£o original
 	_ProcessHit(victim, hitData);
 }
 
@@ -135,11 +189,11 @@ void ReflectProjectileBack(RE::Actor* a_blocker, RE::Projectile* a_projectile, R
 		originalShooter = runtimeData.shooter.get().get();
 	}
 
-	// 1. Mudar a "propriedade" do projÈtil
+	// 1. Mudar a "propriedade" do proj√©til
 	a_projectile->SetActorCause(a_blocker->GetActorCause());
 	runtimeData.shooter = a_blocker->GetHandle();
 
-	// 2. Atualizar Filtro de Colis„o para ignorar o Blocker
+	// 2. Atualizar Filtro de Colis√£o para ignorar o Blocker
 	if (a_projectile_collidable) {
 		RE::CFilter blockerFilter;
 		a_blocker->GetCollisionFilterInfo(blockerFilter);
@@ -147,23 +201,23 @@ void ReflectProjectileBack(RE::Actor* a_blocker, RE::Projectile* a_projectile, R
 		uint32_t currentInfoVal = a_projectile_collidable->broadPhaseHandle.collisionFilterInfo.filter;
 		uint32_t blockerInfoVal = blockerFilter.filter;
 
-		// MantÈm flags de colis„o da flecha/magia, mas assume o System Group do Blocker
+		// Mant√©m flags de colis√£o da flecha/magia, mas assume o System Group do Blocker
 		uint32_t newInfoVal = (currentInfoVal & 0x0000FFFF) | (blockerInfoVal & 0xFFFF0000);
 		a_projectile_collidable->broadPhaseHandle.collisionFilterInfo.filter = newInfoVal;
 	}
 
-	// 3. Calcular Nova DireÁ„o
+	// 3. Calcular Nova Dire√ß√£o
 	RE::NiPoint3 currentPos = a_projectile->GetPosition();
 	RE::NiPoint3 direction;
 
 	if (originalShooter) {
 		RE::NiPoint3 targetPos = originalShooter->GetPosition();
-		// Ajusta para o peito/cabeÁa do alvo
+		// Ajusta para o peito/cabe√ßa do alvo
 		//targetPos.z += originalShooter->GetHeight() * 0.70f;
 		direction = targetPos - currentPos;
 	}
 	else {
-		// Se n„o houver atirador (armadilha), inverte a velocidade atual
+		// Se n√£o houver atirador (armadilha), inverte a velocidade atual
 		RE::NiPoint3 currentVel;
 		a_projectile->GetLinearVelocity(currentVel);
 		direction = currentVel * -1.0f;
@@ -171,21 +225,21 @@ void ReflectProjectileBack(RE::Actor* a_blocker, RE::Projectile* a_projectile, R
 
 	direction.Unitize();
 
-	// 5. Aplicar Velocidade e RotaÁ„o
+	// 5. Aplicar Velocidade e Rota√ß√£o
 	float speed = 3500.0f;
 	runtimeData.linearVelocity = direction * speed;
 	runtimeData.velocity = direction * speed;
 	//a_projectile->SetLinearVelocity(direction * speed);
 
-	// Supondo que vocÍ tenha essa helper function definida:
+	// Supondo que voc√™ tenha essa helper function definida:
 	SetRotationFromVector(a_projectile, direction);
 
 	// 6. Reinicializar estados
 	runtimeData.livingTime = 0.0f;
 	// Para magias: resetar o hit timer para permitir que atinja quem disparou
 	if (runtimeData.spell) {
-		// Algumas magias precisam limpar a lista de alvos j· atingidos
-		// Isso depende da complexidade do projÈtil (Missile vs Beam)
+		// Algumas magias precisam limpar a lista de alvos j√° atingidos
+		// Isso depende da complexidade do proj√©til (Missile vs Beam)
 	}
 }
 
@@ -213,7 +267,7 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 
 	if (currentMode == 0) return false;
 
-	// --- C¡LCULO DE CUSTO ---
+	// --- C√ÅLCULO DE CUSTO ---
 	float cost = 0.0f;
 	ParrySettings::CostType costType = ParrySettings::CostType::None;
 
@@ -232,12 +286,12 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		}
 	}
 
-	// --- VERIFICA«√O DE RECURSO (NOVO) ---
+	// --- VERIFICA√á√ÉO DE RECURSO (NOVO) ---
 	if (!HasEnoughResource(a_blocker, costType, cost)) {
-		return false; // N„o tem recurso -> o parry falha e ele leva o dano
+		return false; // N√£o tem recurso -> o parry falha e ele leva o dano
 	}
 
-	// --- DETERMINAR REFLEX√O ---
+	// --- DETERMINAR REFLEX√ÉO ---
 	int reflectModeSetting = isArrow ? (isPlayer ? ParrySettings::playerArrowReflectMode : ParrySettings::npcArrowReflectMode)
 		: (isPlayer ? ParrySettings::playerMagicReflectMode : ParrySettings::npcMagicReflectMode);
 
@@ -259,7 +313,7 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	
 
 	if (!Sink::g_IsSlowed) {
-		// a_blocker È quem est· defendendo o projÈtil
+		// a_blocker √© quem est√° defendendo o proj√©til
 		if (a_blocker == player || (shooter == player && ParrySettings::npcParrySlowTime)) {
 			Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
 			Sink::ResetTimeTask();
@@ -280,7 +334,20 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	}
 	else {
 		RE::Offset::destroyProjectile(a_projectile);
-		//a_projectile->SetDelete(true); // Apenas anula o projÈtil
+		//a_projectile->SetDelete(true); // Apenas anula o proj√©til
+	}
+
+	const char* parriedEvent = (type == Sink::ParryType::Perfect) ? "PerfParriedCMF" : "ParriedCMF";
+	const char* gotParriedEvent = (type == Sink::ParryType::Perfect) ? "GotPerfParriedCMF" : "GotParriedCMF";
+
+	a_blocker->NotifyAnimationGraph(parriedEvent);
+	if (shooter) {
+		shooter->NotifyAnimationGraph(gotParriedEvent);
+	}
+
+	if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
+		int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
+		Sink::ParryTimerManager::ReduceCommitment(a_blocker->GetFormID(), reduction);
 	}
 
 	return true;
@@ -307,10 +374,10 @@ inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointColle
 			if (target) {
 				// 1. Tenta processar como um bloqueio/parry
 				if (processProjectileBlock(target, a_projectile, projectileCollidable)) {
-					return true; // Se bloqueou, ignora a colis„o original
+					return true; // Se bloqueou, ignora a colis√£o original
 				}
 
-				// 2. Se N√O foi um bloqueio, verifica se este ator tem um stagger pendente (ShouldStaggerCMF)
+				// 2. Se N√ÉO foi um bloqueio, verifica se este ator tem um stagger pendente (ShouldStaggerCMF)
 				int pendingStagger = 0;
 				if (target->GetGraphVariableInt("ShouldStaggerCMF", pendingStagger) && pendingStagger > 0) {
 					float magnitude = (pendingStagger == 2) ? 1.0f : 0.5f;
@@ -318,7 +385,7 @@ inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointColle
 					logger::debug("Applying pending stagger to {} (Type: {})", target->GetName(), pendingStagger);
 					ApplyStagger(target, magnitude, pendingStagger);
 
-					// Reseta para 0 apÛs aplicar
+					// Reseta para 0 ap√≥s aplicar
 					target->SetGraphVariableInt("ShouldStaggerCMF", 0);
 				}
 			}
@@ -343,7 +410,7 @@ void Hook_OnProjectileCollision::OnMissileCollision(RE::Projectile* a_this, RE::
 		logger::debug("Processing projectile for parry check");
 		if (shouldIgnoreHit(a_this, a_AllCdPointCollector)) {
 			logger::debug("Projectile parried, ignoring collision");
-			return; // Parry bem-sucedido, ignora a colis„o original
+			return; // Parry bem-sucedido, ignora a colis√£o original
 		}
 	}
 	_missileCollission(a_this, a_AllCdPointCollector);

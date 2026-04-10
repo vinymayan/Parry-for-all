@@ -1,4 +1,4 @@
-#pragma once
+Ôªø#pragma once
 #include <shared_mutex>
 #include <chrono> // Novo: para controle de tempo
 #include <unordered_map> // Novo: para mapear atores e tempos
@@ -67,23 +67,23 @@ namespace Sink {
 
     //using _setIsGhost = void(*)(RE::Actor* actor, bool isGhost);
 
-    // // 2. LocalizaÁ„o da funÁ„o usando a Address Library (IDs para SE e AE)
+    // // 2. Localiza√ß√£o da fun√ß√£o usando a Address Library (IDs para SE e AE)
     // // ID 36287 = Skyrim SE | ID 37276 = Skyrim AE
     // static inline REL::Relocation<_setIsGhost> IsGhostFunc{ RELOCATION_ID(36287, 37276) };
 
     // /**
-    //  * FunÁ„o para alterar o estado de fantasma de um ator imediatamente.
+    //  * Fun√ß√£o para alterar o estado de fantasma de um ator imediatamente.
     //  * @param a_actor O ponteiro para o ator (personagem/NPC).
     //  * @param a_ghost 'true' para ativar invulnerabilidade, 'false' para desativar.
     //  */
     // static void setghostnow(RE::Actor * a_actor, bool a_ghost) {
     //     if (a_actor) {
-    //         // 3. ExecuÁ„o da chamada direta ao motor do jogo
+    //         // 3. Execu√ß√£o da chamada direta ao motor do jogo
     //         IsGhostFunc(a_actor, a_ghost);
     //     }
     // }
 
-     // FunÁ„o auxiliar para carregar tudo no inÌcio
+     // Fun√ß√£o auxiliar para carregar tudo no in√≠cio
     void InitializeForms();
     RE::TESEffectShader* GetEffectShaderByFormID(RE::FormID a_formID, const std::string& a_pluginName);
 
@@ -97,16 +97,27 @@ namespace Sink {
 
     class ParryTimerManager {
     public:
-        static void StartWindow(RE::FormID a_formID);
+        static void StartWindow(RE::FormID a_formID, bool a_isPlayer);
+        static void ReduceCommitment(RE::FormID a_formID, int a_reductionMS);
         static ParryType GetParryType(RE::FormID a_formID);
         static void RemoveWindow(RE::FormID a_formID);
-
+        inline static std::map<RE::FormID, std::chrono::steady_clock::time_point> g_parryCommitments;
         static void CleanupExpiredWindows();
 
     private:
-        // Define a duraÁ„o da janela (ex: 0.5 segundos)
+        // Define a dura√ß√£o da janela (ex: 0.5 segundos)
         inline static std::unordered_map<RE::FormID, std::chrono::steady_clock::time_point> g_parryWindows;
         inline static std::shared_mutex g_parryMutex;
+    };
+
+    class UnblockableTracker {
+    public:
+        static void SetUnblockable(RE::FormID a_formID, bool a_state);
+        static bool IsUnblockable(RE::FormID a_formID);
+
+    private:
+        inline static std::unordered_map<RE::FormID, bool> g_unblockableStates;
+        inline static std::shared_mutex g_mutex;
     };
 
     void ApplySlowTime(float a_multiplier);
@@ -135,7 +146,7 @@ namespace Sink {
             return &singleton;
         }
 
-        // FunÁ„o chamada quando um evento de combate ocorre
+        // Fun√ß√£o chamada quando um evento de combate ocorre
         RE::BSEventNotifyControl ProcessEvent(const RE::TESCombatEvent* a_event,
             RE::BSTEventSource<RE::TESCombatEvent>*) override;
 
@@ -145,10 +156,10 @@ namespace Sink {
         static void RegisterSinksForExistingCombatants();
 
     private:
-        // Inst‚ncia compartilhada do nosso processador de lÛgica
+        // Inst√¢ncia compartilhada do nosso processador de l√≥gica
         inline static NpcCycleSink g_npcSink;
 
-        // Guarda os FormIDs dos NPCs que j· estamos ouvindo
+        // Guarda os FormIDs dos NPCs que j√° estamos ouvindo
         inline static std::set<RE::FormID> g_trackedNPCs;
         inline static std::shared_mutex g_mutex;
     };

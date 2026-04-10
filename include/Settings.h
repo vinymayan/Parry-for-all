@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <Windows.h>
 #include <filesystem>
 #include <vector>
@@ -36,6 +36,7 @@ namespace ParrySettings {
 
     inline int playerReflectMeleeMode = 1; // 0: Disable, 1: Enable, 2: Perfect
     inline CostType playerReflectMeleeCostType = CostType::None;
+    inline bool playerReflectSkillScaling = false;
 
     // NPC Timings
     inline bool npcParryEnabled = true;
@@ -53,6 +54,7 @@ namespace ParrySettings {
 
     inline int npcReflectMeleeMode = 1;
     inline CostType npcReflectMeleeCostType = CostType::None;
+    inline bool npcReflectSkillScaling = false;
 
     // Player Effects
     inline int playerVisualMode = 1; 
@@ -76,6 +78,12 @@ namespace ParrySettings {
     inline bool npcParryPlayerEnabled = true;
     inline float slowTimeMultiplier = 0.3f;
     inline int slowTimeDurationMS = 200;
+
+    // Parry Commitment
+    inline bool playerParryCommitmentEnabled = false;
+    inline int playerParryCommitmentMS = 500;
+    inline int playerCommitmentReductionNormalMS = 200;
+    inline int playerCommitmentReductionPerfectMS = 500;
 
     void PlayerMenu();
     void NPCMenu();

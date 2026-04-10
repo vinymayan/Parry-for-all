@@ -1,4 +1,4 @@
-#include "Events.h"
+﻿#include "Events.h"
 #include "Settings.h"
 #include "RE/Skyrim.h"
 #include "SKSE/SKSE.h"
@@ -10,17 +10,25 @@ RE::TESEffectShader* PerfParry = nullptr;
 
 
 void Sink::ParryTimerManager::CleanupExpiredWindows() {
-    // Usamos unique_lock pois vamos modificar o mapa
     std::unique_lock lock(g_parryMutex);
-    if (g_parryWindows.empty()) return;
+    if (g_parryWindows.empty() && g_parryCommitments.empty()) return;
 
     auto now = std::chrono::steady_clock::now();
 
-    // Removemos entradas com mais de 2 segundos de forma eficiente
     for (auto it = g_parryWindows.begin(); it != g_parryWindows.end(); ) {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
         if (duration > 2000) {
             it = g_parryWindows.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+
+    // Limpa os commitments expirados
+    for (auto it = g_parryCommitments.begin(); it != g_parryCommitments.end(); ) {
+        if (now > it->second) {
+            it = g_parryCommitments.erase(it);
         }
         else {
             ++it;
@@ -38,7 +46,7 @@ RE::BSEventNotifyControl Sink::NpcCombatTracker::ProcessEvent(const RE::TESComba
 
     auto actor = a_event->actor.get();
     auto* npc = actor->As<RE::Actor>();
-    if (npc && npc != RE::PlayerCharacter::GetSingleton()) {  // Garante que é um ator válido
+    if (npc && npc != RE::PlayerCharacter::GetSingleton()) {  
         switch (a_event->newState.get()) {
         case RE::ACTOR_COMBAT_STATE::kCombat:
             NpcCombatTracker::RegisterSink(npc);
@@ -113,15 +121,17 @@ RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationG
     const std::string_view eventName = a_event->tag;
     bool isPlayer = actor->IsPlayerRef();
     auto npc = const_cast<RE::Actor*>(actor);
-
     if (eventName == "blockStartOut") {
         bool enabled = isPlayer ? ParrySettings::playerParryEnabled : ParrySettings::npcParryEnabled;
         if (enabled) {
-            ParryTimerManager::StartWindow(formID); // Sobrescreve o tempo existente
+            ParryTimerManager::StartWindow(formID, isPlayer);
         }
     }
-    else if (eventName == "attackStop") {
-       npc->SetGraphVariableInt("GotParriedCMF", 0);
+    else if (eventName == "UnblockableHitStartCMF") {
+        UnblockableTracker::SetUnblockable(formID, true);
+    }
+    else if (eventName == "UnblockableHitEndCMF" || eventName == "attackStop") {
+        UnblockableTracker::SetUnblockable(formID, false);
     }
     else {
         ParryTimerManager::CleanupExpiredWindows();
@@ -130,9 +140,31 @@ RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationG
     return RE::BSEventNotifyControl::kContinue;
 }
 
-void Sink::ParryTimerManager::StartWindow(RE::FormID a_formID) {
+void Sink::ParryTimerManager::StartWindow(RE::FormID a_formID, bool a_isPlayer) {
     std::unique_lock lock(g_parryMutex);
-    g_parryWindows[a_formID] = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+
+    // Verifica o Commitment apenas para o Player se a opção estiver ativada
+    if (a_isPlayer && ParrySettings::playerParryCommitmentEnabled) {
+        auto it = g_parryCommitments.find(a_formID);
+        if (it != g_parryCommitments.end()) {
+            if (now < it->second) {
+                return; // O tempo de commit ainda não passou, ignoramos o novo parry
+            }
+        }
+        // Define o tempo que este parry vai "comitar"
+        g_parryCommitments[a_formID] = now + std::chrono::milliseconds(ParrySettings::playerParryCommitmentMS);
+    }
+
+    g_parryWindows[a_formID] = now;
+}
+
+void Sink::ParryTimerManager::ReduceCommitment(RE::FormID a_formID, int a_reductionMS) {
+    std::unique_lock lock(g_parryMutex);
+    auto it = g_parryCommitments.find(a_formID);
+    if (it != g_parryCommitments.end()) {
+        it->second -= std::chrono::milliseconds(a_reductionMS);
+    }
 }
 
 Sink::ParryType Sink::ParryTimerManager::GetParryType(RE::FormID a_formID) {
@@ -383,7 +415,7 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
 void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
 {
     if (attempts > 20) {
-        SKSE::log::critical("[Actor3DLoadEventHandler] Desistindo ap�s {} tentativas para o ator {:08X}.", attempts, actor->GetFormID());
+        SKSE::log::critical("[Actor3DLoadEventHandler] Desistindo após {} tentativas para o ator {:08X}.", attempts, actor->GetFormID());
         return;
     }
     
@@ -403,7 +435,7 @@ void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
                 SKSE::log::info("[Actor3DLoadEventHandler] Graph encontrado para {:08X}. Reconectando...", actor->GetFormID());
         
                 if (actor->IsPlayerRef()) {
-                    // --- L�GICA DO PLAYER ---
+                    // --- LÓGICA DO PLAYER ---
                     // Remove e Adiciona a Sink do Player
                     actor->RemoveAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton());
                     if (actor->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
@@ -439,10 +471,26 @@ RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESO
 
     // Tentamos converter para Ator. Se não for ator (ex: uma parede), ignoramos.
     auto* actor = form->As<RE::Actor>();
-
+    
     if (actor) {
         ScheduleSinkRegistration(actor, 0);
     }
 
     return RE::BSEventNotifyControl::kContinue;
+}
+
+void Sink::UnblockableTracker::SetUnblockable(RE::FormID a_formID, bool a_state) {
+    std::unique_lock lock(g_mutex);
+    if (a_state) {
+        g_unblockableStates[a_formID] = true;
+    }
+    else {
+        g_unblockableStates.erase(a_formID); // Remove para economizar memória
+    }
+}
+
+bool Sink::UnblockableTracker::IsUnblockable(RE::FormID a_formID) {
+    std::shared_lock lock(g_mutex);
+    auto it = g_unblockableStates.find(a_formID);
+    return it != g_unblockableStates.end() ? it->second : false;
 }
