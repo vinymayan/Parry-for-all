@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "Events.h"
+#include "PrecisionAPI.h"
 
 class Hook_OnMeleeHit
 {
@@ -93,5 +94,10 @@ private:
 //        _HandleDamage = _vtbl.write_vfunc(REL::Relocate(0x104, 0x104, 0x106), thunk);
 //    }
 //};
+
+namespace W2W_System {
+	// Função Callback da colisão de armas
+	PRECISION_API::WeaponCollisionCallbackReturn PrecisionWeaponsCallback(const PRECISION_API::PrecisionHitData& a_precisionHitData);
+}
 
 

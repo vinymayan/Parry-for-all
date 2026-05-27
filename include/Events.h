@@ -110,16 +110,6 @@ namespace Sink {
         inline static std::shared_mutex g_parryMutex;
     };
 
-    class UnblockableTracker {
-    public:
-        static void SetUnblockable(RE::FormID a_formID, bool a_state);
-        static bool IsUnblockable(RE::FormID a_formID);
-
-    private:
-        inline static std::unordered_map<RE::FormID, bool> g_unblockableStates;
-        inline static std::shared_mutex g_mutex;
-    };
-
     void ApplySlowTime(float a_multiplier);
     void ResetTimeTask();
 

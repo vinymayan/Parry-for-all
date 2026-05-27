@@ -1,7 +1,5 @@
 ﻿#include "Events.h"
 #include "Settings.h"
-#include "RE/Skyrim.h"
-#include "SKSE/SKSE.h"
 #include "DelayedDispatcher.h"
 
 RE::TESIdleForm* anim = nullptr;
@@ -18,6 +16,11 @@ void Sink::ParryTimerManager::CleanupExpiredWindows() {
     for (auto it = g_parryWindows.begin(); it != g_parryWindows.end(); ) {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
         if (duration > 2000) {
+            auto* actor = RE::TESForm::LookupByID<RE::Actor>(it->first);
+            if (actor) {
+                actor->SetGraphVariableBool("isParryingCMF", false);
+                actor->SetGraphVariableBool("isPerfParryingCMF", false);
+            }
             it = g_parryWindows.erase(it);
         }
         else {
@@ -121,17 +124,24 @@ RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationG
     const std::string_view eventName = a_event->tag;
     bool isPlayer = actor->IsPlayerRef();
     auto npc = const_cast<RE::Actor*>(actor);
-    if (eventName == "blockStartOut") {
+    if (eventName == "blockStartOut" || eventName == "MagicBlockStartCMF") {
         bool enabled = isPlayer ? ParrySettings::playerParryEnabled : ParrySettings::npcParryEnabled;
         if (enabled) {
+            actor->SetGraphVariableBool("isParryingCMF", true);
             ParryTimerManager::StartWindow(formID, isPlayer);
         }
     }
-    else if (eventName == "UnblockableHitStartCMF") {
-        UnblockableTracker::SetUnblockable(formID, true);
+    else if (eventName == "ParryStartCMF") {
+        npc->SetGraphVariableBool("isParryingCMF", true);
     }
-    else if (eventName == "UnblockableHitEndCMF" || eventName == "attackStop") {
-        UnblockableTracker::SetUnblockable(formID, false);
+    else if (eventName == "ParryEndCMF") {
+        npc->SetGraphVariableBool("isParryingCMF", false);
+    }
+    else if (eventName == "PerfParryStartCMF") {
+        npc->SetGraphVariableBool("isPerfParryingCMF", true);
+    }
+    else if (eventName == "PerfParryEndCMF") {
+        npc->SetGraphVariableBool("isPerfParryingCMF", false);
     }
     else {
         ParryTimerManager::CleanupExpiredWindows();
@@ -193,8 +203,6 @@ Sink::ParryType Sink::ParryTimerManager::GetParryType(RE::FormID a_formID) {
 
     return ParryType::None;
 }
-
-
 
 void Sink::ParryTimerManager::RemoveWindow(RE::FormID a_formID) {
     std::unique_lock lock(g_parryMutex);
@@ -432,11 +440,9 @@ void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
             actor->GetAnimationGraphManager(graphManager);
         
             if (graphManager) {
-                SKSE::log::info("[Actor3DLoadEventHandler] Graph encontrado para {:08X}. Reconectando...", actor->GetFormID());
+                
         
                 if (actor->IsPlayerRef()) {
-                    // --- LÓGICA DO PLAYER ---
-                    // Remove e Adiciona a Sink do Player
                     actor->RemoveAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton());
                     if (actor->AddAnimationGraphEventSink(Sink::NpcCycleSink::GetSingleton())) {
                         SKSE::log::info("[Actor3DLoadEventHandler] Sink do PLAYER reconectada com sucesso.");
@@ -444,10 +450,8 @@ void Sink::ScheduleSinkRegistration(RE::Actor* actor, int attempts)
         
                 }
                 else {
-        
                     Sink::NpcCombatTracker::UnregisterSink(actor.get());
                     Sink::NpcCombatTracker::RegisterSink(actor.get());
-        
                     SKSE::log::info("[Actor3DLoadEventHandler] Sink de NPC reconectada (via CombatTracker).");
                 }
             }
@@ -479,18 +483,3 @@ RE::BSEventNotifyControl Sink::PC3DLoadEventHandler::ProcessEvent(const RE::TESO
     return RE::BSEventNotifyControl::kContinue;
 }
 
-void Sink::UnblockableTracker::SetUnblockable(RE::FormID a_formID, bool a_state) {
-    std::unique_lock lock(g_mutex);
-    if (a_state) {
-        g_unblockableStates[a_formID] = true;
-    }
-    else {
-        g_unblockableStates.erase(a_formID); // Remove para economizar memória
-    }
-}
-
-bool Sink::UnblockableTracker::IsUnblockable(RE::FormID a_formID) {
-    std::shared_lock lock(g_mutex);
-    auto it = g_unblockableStates.find(a_formID);
-    return it != g_unblockableStates.end() ? it->second : false;
-}

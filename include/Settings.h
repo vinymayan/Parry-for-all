@@ -36,7 +36,8 @@ namespace ParrySettings {
 
     inline int playerReflectMeleeMode = 1; // 0: Disable, 1: Enable, 2: Perfect
     inline CostType playerReflectMeleeCostType = CostType::None;
-    inline bool playerReflectSkillScaling = false;
+    inline int playerReflectDamageType = 3; // 0 = Flat, 1 = %, 2 = Full, 3 = Skill Scaling
+    inline float playerReflectValue = 50.0f;
 
     // NPC Timings
     inline bool npcParryEnabled = true;
@@ -54,7 +55,8 @@ namespace ParrySettings {
 
     inline int npcReflectMeleeMode = 1;
     inline CostType npcReflectMeleeCostType = CostType::None;
-    inline bool npcReflectSkillScaling = false;
+    inline int npcReflectDamageType = 3;
+    inline float npcReflectValue = 50.0f;
 
     // Player Effects
     inline int playerVisualMode = 1; 
@@ -85,8 +87,49 @@ namespace ParrySettings {
     inline int playerCommitmentReductionNormalMS = 200;
     inline int playerCommitmentReductionPerfectMS = 500;
 
+    // Weapon to Weapon (W2W) Settings
+    inline int w2wMode = 0; // 0 = Disabled, 1 = NPCs Only, 2 = All
+    inline float w2wBaseChance = 10.0f;
+    inline float w2wDamageMult = 1.0f;
+    inline float w2wSkillMult = 1.0f;
+    inline float w2wGlobalDifficulty = 100.0f;
+    inline int w2wReactionTarget = 3; // 0 = Disabled, 1 = Attacker Only, 2 = Defender Only, 3 = Both
+    inline int w2wReactionType = 0; // 0 = Recoil, 1 = Stagger
+
+    struct NPCParryRule {
+        std::string ruleName = "New Rule";
+        RE::FormID perkID = 0;
+
+        bool npcParryEnabled = true;
+        int npcNormalParryMS = 400;
+        int npcPerfectParryMS = 100;
+
+        int npcArrowMode = 1;
+        int npcArrowReflectMode = 1;
+        CostType npcArrowCostType = CostType::None;
+
+        int npcMagicMode = 1;
+        int npcMagicReflectMode = 1;
+        CostType npcMagicCostType = CostType::None;
+
+        int npcReflectMeleeMode = 1;
+        CostType npcReflectMeleeCostType = CostType::None;
+        int npcReflectDamageType = 3;
+        float npcReflectValue = 50.0f;
+
+        int npcMeleeStagger = 1;
+        int npcArrowStagger = 1;
+        int npcMagicStagger = 1;
+
+        int npcVisualMode = 1;
+        int npcSoundMode = 1;
+    };
+
+    inline std::vector<NPCParryRule> npcRules;
+
     void PlayerMenu();
     void NPCMenu();
+    void GeneralMenu();
     void MmRegister();
     void Load();
     void Save();

@@ -1,6 +1,94 @@
 ﻿#include "Hooks.h"
 #include "Settings.h"
 #include "MCP.h"
+#include "PrecisionAPI.h"
+#include "Serialization.h"
+
+struct NPCParryCapability {
+	bool parryEnabled = true;
+	int normalParryMS = 400;
+	int perfectParryMS = 100;
+	int arrowMode = 1;
+	int arrowReflectMode = 1;
+	ParrySettings::CostType arrowCostType = ParrySettings::CostType::None;
+	int magicMode = 1;
+	int magicReflectMode = 1;
+	ParrySettings::CostType magicCostType = ParrySettings::CostType::None;
+	int reflectMeleeMode = 1;
+	ParrySettings::CostType reflectMeleeCostType = ParrySettings::CostType::None;
+	int reflectDamageType = 3;
+	float reflectValue = 50.0f;
+	int meleeStagger = 1;
+	int arrowStagger = 1;
+	int magicStagger = 1;
+	int visualMode = 1;
+	int soundMode = 1;
+};
+
+static NPCParryCapability GetNPCParryCapability(RE::Actor* a_actor)
+{
+	NPCParryCapability cap;
+
+	// 1. Se o Parry estiver desligado globalmente para NPCs
+	if (!ParrySettings::npcParryEnabled) {
+		cap.parryEnabled = false;
+		return cap;
+	}
+
+	// 2. Busca e avalia prioridade por Perks (Regras Dinâmicas)
+	for (const auto& rule : ParrySettings::npcRules) {
+		if (rule.perkID != 0) {
+			auto perkForm = RE::TESForm::LookupByID(rule.perkID);
+			if (perkForm && perkForm->GetFormType() == RE::FormType::Perk) {
+				auto perk = perkForm->As<RE::BGSPerk>();
+				if (perk && a_actor->HasPerk(perk)) {
+					// Copia os dados específicos da regra correspondente
+					cap.parryEnabled = rule.npcParryEnabled;
+					cap.normalParryMS = rule.npcNormalParryMS;
+					cap.perfectParryMS = rule.npcPerfectParryMS;
+					cap.arrowMode = rule.npcArrowMode;
+					cap.arrowReflectMode = rule.npcArrowReflectMode;
+					cap.arrowCostType = rule.npcArrowCostType;
+					cap.magicMode = rule.npcMagicMode;
+					cap.magicReflectMode = rule.npcMagicReflectMode;
+					cap.magicCostType = rule.npcMagicCostType;
+					cap.reflectMeleeMode = rule.npcReflectMeleeMode;
+					cap.reflectMeleeCostType = rule.npcReflectMeleeCostType;
+					cap.reflectDamageType = rule.npcReflectDamageType;
+					cap.reflectValue = rule.npcReflectValue;
+					cap.meleeStagger = rule.npcMeleeStagger;
+					cap.arrowStagger = rule.npcArrowStagger;
+					cap.magicStagger = rule.npcMagicStagger;
+					cap.visualMode = rule.npcVisualMode;
+					cap.soundMode = rule.npcSoundMode;
+					return cap;
+				}
+			}
+		}
+	}
+
+	// 3. Fallback: Se não achar nenhum perk, puxa as variáveis globais padrões do mod
+	cap.parryEnabled = ParrySettings::npcParryEnabled;
+	cap.normalParryMS = ParrySettings::npcNormalParryMS;
+	cap.perfectParryMS = ParrySettings::npcPerfectParryMS;
+	cap.arrowMode = ParrySettings::npcArrowMode;
+	cap.arrowReflectMode = ParrySettings::npcArrowReflectMode;
+	cap.arrowCostType = ParrySettings::npcArrowCostType;
+	cap.magicMode = ParrySettings::npcMagicMode;
+	cap.magicReflectMode = ParrySettings::npcMagicReflectMode;
+	cap.magicCostType = ParrySettings::npcMagicCostType;
+	cap.reflectMeleeMode = ParrySettings::npcReflectMeleeMode;
+	cap.reflectMeleeCostType = ParrySettings::npcReflectMeleeCostType;
+	cap.reflectDamageType = ParrySettings::npcReflectDamageType;
+	cap.reflectValue = ParrySettings::npcReflectValue;
+	cap.meleeStagger = ParrySettings::npcMeleeStagger;
+	cap.arrowStagger = ParrySettings::npcArrowStagger;
+	cap.magicStagger = ParrySettings::npcMagicStagger;
+	cap.visualMode = ParrySettings::npcVisualMode;
+	cap.soundMode = ParrySettings::npcSoundMode;
+
+	return cap;
+}
 
 RE::ActorValue GetAttackerMeleeSkill(RE::Actor* a_attacker) {
 	if (!a_attacker) return RE::ActorValue::kOneHanded;
@@ -63,107 +151,292 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 	logger::debug("Melee hit processed");
 	auto aggressor = hitData.aggressor.get().get();
 	bool isUnblockble = false;
-	isUnblockble = Sink::UnblockableTracker::IsUnblockable(aggressor->GetFormID());
+	if (aggressor) {
+		aggressor->GetGraphVariableBool("isUnblockableHitCMF", isUnblockble);
+	}
 	if (!victim || !aggressor || isUnblockble || !victim->IsBlocking()) {
 		_ProcessHit(victim, hitData);
 		return;
 	}
 
-	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(victim->GetFormID());
 	bool isPlayer = (victim == RE::PlayerCharacter::GetSingleton());
-
-	if (type != Sink::ParryType::None && !isUnblockble) {
-		if (!isPlayer && aggressor->IsPlayerRef() && !ParrySettings::npcParryPlayerEnabled) {
+	NPCParryCapability cap;
+	if (!isPlayer) {
+		cap = GetNPCParryCapability(victim);
+		if (!cap.parryEnabled) {
 			_ProcessHit(victim, hitData);
 			return;
 		}
-		int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : ParrySettings::npcReflectMeleeMode;
-		int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : ParrySettings::npcMeleeStagger;
-		bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
-		ParrySettings::CostType costType = isPlayer ? ParrySettings::playerReflectMeleeCostType : ParrySettings::npcReflectMeleeCostType;
+	}
 
-		// 1. Verificar se deve refletir
+	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(victim->GetFormID());
+	bool isParryingExternal = false;
+	victim->GetGraphVariableBool("isParryingCMF", isParryingExternal);
+	bool perfectParry = false;
+	victim->GetGraphVariableBool("isPerfectParryingCMF", perfectParry);
+
+	if (type == Sink::ParryType::None && isParryingExternal) {
+		type = Sink::ParryType::Normal;
+	}
+	else if (perfectParry) {
+		type = Sink::ParryType::Perfect;
+	}
+
+	if (type == Sink::ParryType::None) {
+		_ProcessHit(victim, hitData);
+		return;
+	}
+
+	if (!isPlayer && aggressor->IsPlayerRef() && !ParrySettings::npcParryPlayerEnabled) {
+		_ProcessHit(victim, hitData);
+		return;
+	}
+
+	int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : cap.reflectMeleeMode;
+	int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : cap.meleeStagger;
+	bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
+	ParrySettings::CostType costType = isPlayer ? ParrySettings::playerReflectMeleeCostType : cap.reflectMeleeCostType;
+	bool shouldReflect = (reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect);
+
+	float cost = hitData.totalDamage;
+
+	if (HasEnoughResource(victim, costType, cost)) {
+		if (isPlayer) {
+			if (type == Sink::ParryType::Perfect) {
+				Tracking::PerfectParry++;
+				victim->SetGraphVariableInt("PerfectParriedHitsSTM", static_cast<int>(Tracking::PerfectParry));
+			}
+			else {
+				Tracking::NormalParry++;
+				victim->SetGraphVariableInt("ParriedHitsSTM", static_cast<int>(Tracking::NormalParry));
+			}
+		}
+
+		const char* parriedEvent = (type == Sink::ParryType::Perfect) ? "PerfParriedCMF" : "ParriedCMF";
+		const char* gotParriedEvent = (type == Sink::ParryType::Perfect) ? "GotPerfParriedCMF" : "GotParriedCMF";
+
+		victim->NotifyAnimationGraph(parriedEvent);
+		aggressor->NotifyAnimationGraph(gotParriedEvent);
+
+		if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
+			int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
+			Sink::ParryTimerManager::ReduceCommitment(victim->GetFormID(), reduction);
+		}
+
+		auto player = RE::PlayerCharacter::GetSingleton();
+		if (!Sink::g_IsSlowed) {
+			if (victim == player || (aggressor == player && ParrySettings::npcParrySlowTime)) {
+				Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
+				Sink::ResetTimeTask();
+			}
+		}
+
+		if (costType != ParrySettings::CostType::None) {
+			RE::ActorValue av = GetAVFromCostType(costType);
+			if (av != RE::ActorValue::kNone) {
+				victim->AsActorValueOwner()->DamageActorValue(av, cost);
+			}
+		}
+
+		if (shouldReflect) {
+			float damageToReflect = hitData.totalDamage;
+			// Árvore Condicional Matemática de Modos de Reflexão (Nativo)
+			int damageType = isPlayer ? ParrySettings::playerReflectDamageType : cap.reflectDamageType;
+			float modifierValue = isPlayer ? ParrySettings::playerReflectValue : cap.reflectValue;
+
+			switch (damageType) {
+			case 0: // Flat Damage
+				damageToReflect = modifierValue;
+				break;
+			case 1: // Percentage Damage
+				damageToReflect = damageToReflect * (modifierValue / 100.0f);
+				break;
+			case 2: // Full Damage
+				// damageToReflect mantém o valor base total intacto (100%)
+				break;
+			case 3: // Skill Scaling
+			default:
+			{
+				float defSkill = victim->AsActorValueOwner()->GetActorValue(RE::ActorValue::kBlock);
+				RE::ActorValue atkSkillAV = GetAttackerMeleeSkill(aggressor);
+				float atkSkill = aggressor->AsActorValueOwner()->GetActorValue(atkSkillAV);
+				float multiplier = defSkill / std::max(atkSkill, 1.0f);
+				damageToReflect *= multiplier;
+			}
+			break;
+			}
+			aggressor->DoDamage(damageToReflect, aggressor, false);
+		}
+
+		if (shouldStagger) {
+			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
+			float magnitude = (type == Sink::ParryType::Perfect ? 1.0f : 0.5f);
+			ApplyStagger(aggressor, magnitude, parryVal);
+		}
+
+		Sink::PlayParryEffects(victim, nullptr, Sink::ParrySource::Melee, type);
+		hitData.totalDamage = 0;
+		return;
+	}
+	_ProcessHit(victim, hitData);
+}
+
+namespace Hook_Precision
+{
+	static PRECISION_API::PreHitCallbackReturn PreHitCallback(const PRECISION_API::PrecisionHitData& a_hitData)
+	{
+		PRECISION_API::PreHitCallbackReturn ret;
+
+		if (!a_hitData.target || a_hitData.target->formType != RE::FormType::ActorCharacter) {
+			return ret;
+		}
+
+		auto victim = const_cast<RE::TESObjectREFR*>(a_hitData.target)->As<RE::Actor>();
+		auto aggressor = a_hitData.attacker;
+
+		if (!victim || !aggressor || !victim->IsBlocking()) {
+			return ret;
+		}
+
+		bool isUnblockable = false;
+		aggressor->GetGraphVariableBool("isUnblockableHitCMF", isUnblockable);
+		if (isUnblockable) {
+			return ret;
+		}
+
+		bool isPlayer = (victim == RE::PlayerCharacter::GetSingleton());
+		NPCParryCapability cap;
+		if (!isPlayer) {
+			cap = GetNPCParryCapability(victim);
+			if (!cap.parryEnabled) {
+				return ret;
+			}
+		}
+
+		Sink::ParryType type = Sink::ParryTimerManager::GetParryType(victim->GetFormID());
+		bool isParryingExternal = false;
+		victim->GetGraphVariableBool("isParryingCMF", isParryingExternal);
+		bool perfectParry = false;
+		victim->GetGraphVariableBool("isPerfectParryingCMF", perfectParry);
+
+		if (type == Sink::ParryType::None && isParryingExternal) {
+			type = Sink::ParryType::Normal;
+		}
+		else if (perfectParry) {
+			type = Sink::ParryType::Perfect;
+		}
+
+		if (type == Sink::ParryType::None) {
+			return ret;
+		}
+
+		if (!isPlayer && aggressor->IsPlayerRef() && !ParrySettings::npcParryPlayerEnabled) {
+			return ret;
+		}
+
+		int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : cap.reflectMeleeMode;
+		int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : cap.meleeStagger;
+		bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
+		ParrySettings::CostType costType = isPlayer ? ParrySettings::playerReflectMeleeCostType : cap.reflectMeleeCostType;
 		bool shouldReflect = (reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect);
 
-		float cost = hitData.totalDamage;
+		float cost = 0.0f;
+		auto attackerWeaponObj = aggressor->GetEquippedObject(false);
+		if (attackerWeaponObj && attackerWeaponObj->IsWeapon()) {
+			cost = attackerWeaponObj->As<RE::TESObjectWEAP>()->GetAttackDamage();
+		}
 
 		if (HasEnoughResource(victim, costType, cost)) {
-			// 1. Notificar Graph Events para Defensor e Atacante
+			if (isPlayer) {
+				if (type == Sink::ParryType::Perfect) {
+					Tracking::PerfectParry++;
+					victim->SetGraphVariableInt("PerfectParriedHitsSTM", static_cast<int>(Tracking::PerfectParry));
+				}
+				else {
+					Tracking::NormalParry++;
+					victim->SetGraphVariableInt("ParriedHitsSTM", static_cast<int>(Tracking::NormalParry));
+				}
+			}
+
 			const char* parriedEvent = (type == Sink::ParryType::Perfect) ? "PerfParriedCMF" : "ParriedCMF";
 			const char* gotParriedEvent = (type == Sink::ParryType::Perfect) ? "GotPerfParriedCMF" : "GotParriedCMF";
 
 			victim->NotifyAnimationGraph(parriedEvent);
 			aggressor->NotifyAnimationGraph(gotParriedEvent);
 
-			// 2. Reduzir o tempo de Commitment
 			if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
 				int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
 				Sink::ParryTimerManager::ReduceCommitment(victim->GetFormID(), reduction);
 			}
 
-			auto player = RE::PlayerCharacter::GetSingleton();
 			if (!Sink::g_IsSlowed) {
-				if (victim == player || (aggressor == player && ParrySettings::npcParrySlowTime)) {
+				if (isPlayer || (aggressor->IsPlayerRef() && ParrySettings::npcParrySlowTime)) {
 					Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
 					Sink::ResetTimeTask();
 				}
 			}
-			// Paga o custo
+
 			if (costType != ParrySettings::CostType::None) {
-				RE::ActorValue av = (costType == ParrySettings::CostType::Stamina) ? RE::ActorValue::kStamina : RE::ActorValue::kMagicka;
-				victim->AsActorValueOwner()->DamageActorValue(av, cost);
+				RE::ActorValue av = GetAVFromCostType(costType);
+				if (av != RE::ActorValue::kNone) {
+					victim->AsActorValueOwner()->DamageActorValue(av, cost);
+				}
 			}
 
-			// Aplica Reflexão: Devolve o dano ao atacante
 			if (shouldReflect) {
-				float damageToReflect = hitData.totalDamage;
-				bool useSkillScaling = isPlayer ? ParrySettings::playerReflectSkillScaling : ParrySettings::npcReflectSkillScaling;
+				float damageToReflect = cost;
+				// NOVO: Árvore Condicional Matemática de Modos de Reflexão (Precision API)
+				int damageType = isPlayer ? ParrySettings::playerReflectDamageType : cap.reflectDamageType;
+				float modifierValue = isPlayer ? ParrySettings::playerReflectValue : cap.reflectValue;
 
-				if (useSkillScaling) {
-					// 1. Pega a habilidade de bloqueio do defensor
+				switch (damageType) {
+				case 0: // Flat
+					damageToReflect = modifierValue;
+					break;
+				case 1: // Percentage
+					damageToReflect = damageToReflect * (modifierValue / 100.0f);
+					break;
+				case 2: // Full
+					break;
+				case 3: // Skill
+				default:
+				{
 					float defSkill = victim->AsActorValueOwner()->GetActorValue(RE::ActorValue::kBlock);
-
-					// 2. Descobre qual habilidade o atacante está usando e pega o valor
-					RE::ActorValue atkSkillAV = GetAttackerMeleeSkill(aggressor);
-					float atkSkill = aggressor->AsActorValueOwner()->GetActorValue(atkSkillAV);
-
-					// 3. Calcula a diferença percentual. Usamos std::max(atkSkill, 1.0f) para evitar divisão por 0
-					// Se defSkill=100 e atkSkill=50, multiplier = 2.0 (Dano dobrado)
-					// Se defSkill=50 e atkSkill=100, multiplier = 0.5 (Dano pela metade)
-					float multiplier = defSkill / std::max(atkSkill, 1.0f);
-
-					damageToReflect *= multiplier;
+					float atkSkill = aggressor->AsActorValueOwner()->GetActorValue(GetAttackerMeleeSkill(aggressor));
+					damageToReflect *= (defSkill / std::max(atkSkill, 1.0f));
 				}
-
+				break;
+				}
 				aggressor->DoDamage(damageToReflect, aggressor, false);
 			}
 
-			// Aplica Stagger
 			if (shouldStagger) {
 				int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
 				float magnitude = (type == Sink::ParryType::Perfect ? 1.0f : 0.5f);
 				ApplyStagger(aggressor, magnitude, parryVal);
 			}
 
-			// Efeitos Visuais
 			Sink::PlayParryEffects(victim, nullptr, Sink::ParrySource::Melee, type);
-			logger::debug("Parry succeeded on melee hit by actor {}", victim->GetName());
-			// Zera o dano que a vítima receberia
-			hitData.totalDamage = 0;
-			return; // Bloqueio completo
+			ret.bIgnoreHit = true;
+		}
+
+		return ret;
+	}
+
+	void Initialize()
+	{
+		auto precisionAPI = static_cast<PRECISION_API::IVPrecision4*>(PRECISION_API::RequestPluginAPI(PRECISION_API::InterfaceVersion::V4));
+		if (precisionAPI) {
+			// Unificação das chamadas da API sob o mesmo escopo lógico
+			precisionAPI->AddPreHitCallback(SKSE::GetPluginHandle(), PreHitCallback);
+			precisionAPI->AddWeaponWeaponCollisionCallback(SKSE::GetPluginHandle(), W2W_System::PrecisionWeaponsCallback);
+			SKSE::log::info("[Precision API Unificada]: Registros de PreHit e Weapon Collision concluídos com sucesso!");
+		}
+		else {
+			SKSE::log::warn("[Precision API]: Plugin não encontrado. Rodando puramente por hooks nativos do jogo.");
 		}
 	}
-	// Chamar a função original
-	_ProcessHit(victim, hitData);
 }
-
-//void Hook_OnMeleeHit::OnMeleeHit(RE::Actor* attacker, RE::Actor* target, std::int64_t a_int1, bool a_bool,
-//	void* a_unkptr)
-//{
-//	logger::info("OnMeleeHit called: attacker {}, target {}", attacker ? attacker->GetName() : "null",
-//		target ? target->GetName() : "null");
-//	return _OnMeleeHit(attacker, target, a_int1, a_bool, a_unkptr);
-//}
 
 void SetRotationFromVector(RE::Projectile* a_projectile, const RE::NiPoint3& a_direction) {
 	if (!a_projectile || !a_projectile->Get3D()) return;
@@ -243,16 +516,10 @@ void ReflectProjectileBack(RE::Actor* a_blocker, RE::Projectile* a_projectile, R
 	}
 }
 
-
-
 bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, RE::hkpCollidable* a_projectile_collidable)
 {
 	auto player = RE::PlayerCharacter::GetSingleton();
 	bool isPlayer = (a_blocker == player);
-	//logger::info("Actor {} is blocking projectile {}", a_blocker->GetName(), a_projectile->GetName());
-	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(a_blocker->GetFormID());
-	if (type == Sink::ParryType::None) return false;
-
 	auto shooterHandle = a_projectile->GetProjectileRuntimeData().shooter;
 	auto shooter = shooterHandle.get().get() ? shooterHandle.get().get()->As<RE::Actor>() : nullptr;
 
@@ -260,20 +527,50 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		return false;
 	}
 
+	bool isUnblockable = false;
+	if (shooter) {
+		shooter->GetGraphVariableBool("isUnblockableHitCMF", isUnblockable);
+		if (isUnblockable) {
+			return false;
+		}
+	}
+
+	NPCParryCapability cap;
+	if (!isPlayer) {
+		cap = GetNPCParryCapability(a_blocker);
+		if (!cap.parryEnabled) {
+			return false;
+		}
+	}
+
+	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(a_blocker->GetFormID());
+	bool isParryingExternal = false;
+	a_blocker->GetGraphVariableBool("isParryingCMF", isParryingExternal);
+	bool perfectParry = false;
+	a_blocker->GetGraphVariableBool("isPerfectParryingCMF", perfectParry);
+
+	if (type == Sink::ParryType::None && isParryingExternal) {
+		type = Sink::ParryType::Normal;
+	}
+	else if (perfectParry) {
+		type = Sink::ParryType::Perfect;
+	}
+
+	if (type == Sink::ParryType::None) return false;
+
 	bool isArrow = !a_projectile->GetProjectileRuntimeData().spell;
 
-	int currentMode = isArrow ? (isPlayer ? ParrySettings::playerArrowMode : ParrySettings::npcArrowMode)
-		: (isPlayer ? ParrySettings::playerMagicMode : ParrySettings::npcMagicMode);
+	int currentMode = isArrow ? (isPlayer ? ParrySettings::playerArrowMode : cap.arrowMode)
+		: (isPlayer ? ParrySettings::playerMagicMode : cap.magicMode);
 
 	if (currentMode == 0) return false;
 
-	// --- CÁLCULO DE CUSTO ---
 	float cost = 0.0f;
 	ParrySettings::CostType costType = ParrySettings::CostType::None;
 
-	if (currentMode == 2) { // Modo com Custo
-		costType = isArrow ? (isPlayer ? ParrySettings::playerArrowCostType : ParrySettings::npcArrowCostType)
-			: (isPlayer ? ParrySettings::playerMagicCostType : ParrySettings::npcMagicCostType);
+	if (currentMode == 2) {
+		costType = isArrow ? (isPlayer ? ParrySettings::playerArrowCostType : cap.arrowCostType)
+			: (isPlayer ? ParrySettings::playerMagicCostType : cap.magicCostType);
 
 		if (isArrow) {
 			auto launcher = a_projectile->GetProjectileRuntimeData().weaponSource;
@@ -286,47 +583,52 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		}
 	}
 
-	// --- VERIFICAÇÃO DE RECURSO (NOVO) ---
 	if (!HasEnoughResource(a_blocker, costType, cost)) {
-		return false; // Não tem recurso -> o parry falha e ele leva o dano
+		return false;
 	}
 
-	// --- DETERMINAR REFLEXÃO ---
-	int reflectModeSetting = isArrow ? (isPlayer ? ParrySettings::playerArrowReflectMode : ParrySettings::npcArrowReflectMode)
-		: (isPlayer ? ParrySettings::playerMagicReflectMode : ParrySettings::npcMagicReflectMode);
+	if (isPlayer) {
+		if (type == Sink::ParryType::Perfect) {
+			Tracking::PerfectParry++;
+			a_blocker->SetGraphVariableInt("PerfectParriedHitsSTM", static_cast<int>(Tracking::PerfectParry));
+		}
+		else {
+			Tracking::NormalParry++;
+			a_blocker->SetGraphVariableInt("ParriedHitsSTM", static_cast<int>(Tracking::NormalParry));
+		}
+	}
+
+	int reflectModeSetting = isArrow ? (isPlayer ? ParrySettings::playerArrowReflectMode : cap.arrowReflectMode)
+		: (isPlayer ? ParrySettings::playerMagicReflectMode : cap.magicReflectMode);
 
 	bool shouldReflect = (reflectModeSetting == 1) || (reflectModeSetting == 2 && type == Sink::ParryType::Perfect);
-	int staggerMode = isArrow ? (isPlayer ? ParrySettings::playerArrowStagger : ParrySettings::npcArrowStagger)
-		: (isPlayer ? ParrySettings::playerMagicStagger : ParrySettings::npcMagicStagger);
+	int staggerMode = isArrow ? (isPlayer ? ParrySettings::playerArrowStagger : cap.arrowStagger)
+		: (isPlayer ? ParrySettings::playerMagicStagger : cap.magicStagger);
 
 	bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
 
 	if (shouldStagger) {
-		auto shooter = a_projectile->GetProjectileRuntimeData().shooter.get().get();
-		if (shooter && shooter->As<RE::Actor>()) {
+		auto shooterActor = a_projectile->GetProjectileRuntimeData().shooter.get().get();
+		if (shooterActor && shooterActor->As<RE::Actor>()) {
 			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
-			shooter->SetGraphVariableInt("ShouldStaggerCMF", parryVal);
-			logger::debug("Shooter {} marked for pending stagger (Value: {})", shooter->GetName(), parryVal);
+			shooterActor->SetGraphVariableInt("ShouldStaggerCMF", parryVal);
 		}
 	}
 
-	
-
 	if (!Sink::g_IsSlowed) {
-		// a_blocker é quem está defendendo o projétil
 		if (a_blocker == player || (shooter == player && ParrySettings::npcParrySlowTime)) {
 			Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
 			Sink::ResetTimeTask();
 		}
 	}
 
-	// 2. Tocar Efeitos
 	Sink::PlayParryEffects(a_blocker, a_projectile, isArrow ? Sink::ParrySource::Arrow : Sink::ParrySource::Magic, type);
-	// --- EXECUTAR ---
-	// Aplica o dano no recurso
+
 	if (cost > 0.0f) {
-		RE::ActorValue resourceAV = (costType == ParrySettings::CostType::Stamina) ? RE::ActorValue::kStamina : RE::ActorValue::kMagicka;
-		a_blocker->AsActorValueOwner()->DamageActorValue(resourceAV, cost);
+		RE::ActorValue resourceAV = GetAVFromCostType(costType);
+		if (resourceAV != RE::ActorValue::kNone) {
+			a_blocker->AsActorValueOwner()->DamageActorValue(resourceAV, cost);
+		}
 	}
 
 	if (shouldReflect) {
@@ -334,7 +636,6 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	}
 	else {
 		RE::Offset::destroyProjectile(a_projectile);
-		//a_projectile->SetDelete(true); // Apenas anula o projétil
 	}
 
 	const char* parriedEvent = (type == Sink::ParryType::Perfect) ? "PerfParriedCMF" : "ParriedCMF";
@@ -416,4 +717,96 @@ void Hook_OnProjectileCollision::OnMissileCollision(RE::Projectile* a_this, RE::
 	_missileCollission(a_this, a_AllCdPointCollector);
 }
 
+PRECISION_API::WeaponCollisionCallbackReturn W2W_System::PrecisionWeaponsCallback(const PRECISION_API::PrecisionHitData& a_precisionHitData)
+{
+	PRECISION_API::WeaponCollisionCallbackReturn ret;
+	ret.bIgnoreHit = false; // Hit normal por padrão
 
+	if (ParrySettings::w2wMode == 0) return ret; // Sistema desabilitado
+
+	auto hit_causer = a_precisionHitData.attacker;
+	auto hit_target = a_precisionHitData.target ? a_precisionHitData.target->As<RE::Actor>() : nullptr;
+
+	if (!hit_causer || !hit_target) return ret;
+
+	// Verifica a restrição de "Apenas NPCs"
+	bool isPlayerInvolved = hit_causer->IsPlayerRef() || hit_target->IsPlayerRef();
+	if (ParrySettings::w2wMode == 1 && isPlayerInvolved) return ret;
+
+	// 1. Coleta Dados das Armas e Dano Base
+	auto attackerWeaponObj = hit_causer->GetEquippedObject(false);
+	auto defenderWeaponObj = hit_target->GetEquippedObject(false);
+
+	float attackerDamage = 0.0f;
+	if (attackerWeaponObj && attackerWeaponObj->IsWeapon()) {
+		attackerDamage = attackerWeaponObj->As<RE::TESObjectWEAP>()->GetAttackDamage();
+	}
+
+	float defenderDamage = 0.0f;
+	if (defenderWeaponObj && defenderWeaponObj->IsWeapon()) {
+		defenderDamage = defenderWeaponObj->As<RE::TESObjectWEAP>()->GetAttackDamage();
+	}
+
+	// 2. Coleta a Skill atual dos atores com suas armas
+	// Utilizando a função GetAttackerMeleeSkill que já existe no seu Hooks.cpp
+	float attackerSkill = hit_causer->AsActorValueOwner()->GetActorValue(GetAttackerMeleeSkill(hit_causer));
+	float defenderSkill = hit_target->AsActorValueOwner()->GetActorValue(GetAttackerMeleeSkill(hit_target));
+
+	// 3. Calcula o Power (Poder de colisão) baseado nos multiplicadores da UI
+	float attackerPower = ParrySettings::w2wBaseChance + (attackerDamage * ParrySettings::w2wDamageMult) + (attackerSkill * ParrySettings::w2wSkillMult);
+	float defenderPower = ParrySettings::w2wBaseChance + (defenderDamage * ParrySettings::w2wDamageMult) + (defenderSkill * ParrySettings::w2wSkillMult);
+
+	// 4. Determina o Vencedor baseado na lógica de probabilidade do UnblockableManager
+	float attackerWinChance = attackerPower / (attackerPower + defenderPower + ParrySettings::w2wGlobalDifficulty);
+
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_real_distribution<> dis(0.0, 1.0);
+	float roll = static_cast<float>(dis(gen));
+
+	bool attackerWins = roll < attackerWinChance;
+
+	RE::Actor* winner = attackerWins ? hit_causer : hit_target;
+	RE::Actor* loser = attackerWins ? hit_target : hit_causer;
+	// 5. Verifica quem deve receber a reação com base na UI
+	bool affectAttacker = (ParrySettings::w2wReactionTarget == 1 || ParrySettings::w2wReactionTarget == 3);
+	bool affectDefender = (ParrySettings::w2wReactionTarget == 2 || ParrySettings::w2wReactionTarget == 3);
+
+	const RE::NiPoint3 hitPos = a_precisionHitData.hitPos;
+
+	// Aplica os Graph Events através de uma Task no SKSE para thread safety
+	SKSE::GetTaskInterface()->AddTask([winner, loser, hit_causer, hit_target, hitPos, affectAttacker, affectDefender]() {
+
+		// Lambda interna para aplicar a reação correta
+		auto applyReaction = [](RE::Actor* actor, bool isWinner) {
+			if (!actor) return;
+
+			if (ParrySettings::w2wReactionType == 0) {
+				// TIPO: RECOIL
+				actor->NotifyAnimationGraph("recoilStop");
+				actor->NotifyAnimationGraph("AttackStop");
+				actor->NotifyAnimationGraph(isWinner ? "recoilStart" : "recoilLargeStart");
+			}
+			else {
+				// TIPO: STAGGER
+				float magnitude = isWinner ? 0.25f : 1.0f;
+				int parryVal = isWinner ? 1 : 2;
+				ApplyStagger(actor, magnitude, parryVal);
+			}
+		};
+
+		// Aplica ao atacante (hit_causer) se a UI permitir
+		if (affectAttacker && hit_causer) {
+			applyReaction(hit_causer, hit_causer == winner);
+		}
+
+		// Aplica ao defensor (hit_target) se a UI permitir
+		if (affectDefender && hit_target) {
+			applyReaction(hit_target, hit_target == winner);
+		}
+		});
+
+	// Retorna bIgnoreHit = true para que o jogo ignore o dano físico do choque e trate apenas como a colisão das armas
+	ret.bIgnoreHit = true;
+	return ret;
+}
