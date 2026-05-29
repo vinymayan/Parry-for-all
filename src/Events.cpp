@@ -127,7 +127,6 @@ RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationG
     if (eventName == "blockStartOut" || eventName == "MagicBlockStartCMF") {
         bool enabled = isPlayer ? ParrySettings::playerParryEnabled : ParrySettings::npcParryEnabled;
         if (enabled) {
-            actor->SetGraphVariableBool("isParryingCMF", true);
             ParryTimerManager::StartWindow(formID, isPlayer);
         }
     }
@@ -143,9 +142,6 @@ RE::BSEventNotifyControl Sink::NpcCycleSink::ProcessEvent(const RE::BSAnimationG
     else if (eventName == "PerfParryEndCMF") {
         npc->SetGraphVariableBool("isPerfParryingCMF", false);
     }
-    else {
-        ParryTimerManager::CleanupExpiredWindows();
-    }
 
     return RE::BSEventNotifyControl::kContinue;
 }
@@ -154,19 +150,83 @@ void Sink::ParryTimerManager::StartWindow(RE::FormID a_formID, bool a_isPlayer) 
     std::unique_lock lock(g_parryMutex);
     auto now = std::chrono::steady_clock::now();
 
-    // Verifica o Commitment apenas para o Player se a opção estiver ativada
     if (a_isPlayer && ParrySettings::playerParryCommitmentEnabled) {
         auto it = g_parryCommitments.find(a_formID);
         if (it != g_parryCommitments.end()) {
             if (now < it->second) {
-                return; // O tempo de commit ainda não passou, ignoramos o novo parry
+                return;
             }
         }
-        // Define o tempo que este parry vai "comitar"
         g_parryCommitments[a_formID] = now + std::chrono::milliseconds(ParrySettings::playerParryCommitmentMS);
     }
 
     g_parryWindows[a_formID] = now;
+
+    if (auto actor = RE::TESForm::LookupByID<RE::Actor>(a_formID)) {
+        long perfectMS = 100;
+        long normalMS = 400;
+
+        if (a_isPlayer) {
+            perfectMS = ParrySettings::playerPerfectParryMS;
+            normalMS = ParrySettings::playerNormalParryMS;
+        }
+        else {
+            perfectMS = ParrySettings::npcPerfectParryMS;
+            normalMS = ParrySettings::npcNormalParryMS;
+            for (const auto& rule : ParrySettings::npcRules) {
+                if (rule.perkID != 0) {
+                    if (auto perk = RE::TESForm::LookupByID<RE::BGSPerk>(rule.perkID)) {
+                        if (actor->HasPerk(perk)) {
+                            perfectMS = rule.npcPerfectParryMS;
+                            normalMS = rule.npcNormalParryMS;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Ativa ambas as janelas internas no grafo de animação
+        actor->SetGraphVariableBool("isParryingCMF", true);
+        actor->SetGraphVariableBool("isPerfParryingCMF", true);
+
+        auto actorHandle = actor->CreateRefHandle();
+
+        // 1. Agendamento reativo para encerrar a janela PERFEITA
+        Utils::DelayedDispatcher::Get().PostDelayed(std::chrono::milliseconds(perfectMS), [actorHandle, a_formID, now]() {
+            SKSE::GetTaskInterface()->AddTask([actorHandle, a_formID, now]() {
+                {
+                    std::shared_lock lock(g_parryMutex);
+                    auto it = g_parryWindows.find(a_formID);
+                    if (it != g_parryWindows.end() && it->second != now) {
+                        return; // Sobrescrito por uma janela mais nova
+                    }
+                }
+                if (actorHandle && actorHandle.get()) {
+                    actorHandle.get()->SetGraphVariableBool("isPerfParryingCMF", false);
+                }
+                });
+            });
+
+        // 2. Agendamento reativo para encerrar a janela NORMAL e limpar mapa
+        Utils::DelayedDispatcher::Get().PostDelayed(std::chrono::milliseconds(normalMS), [actorHandle, a_formID, now]() {
+            SKSE::GetTaskInterface()->AddTask([actorHandle, a_formID, now]() {
+                {
+                    std::unique_lock lock(g_parryMutex);
+                    auto it = g_parryWindows.find(a_formID);
+                    if (it != g_parryWindows.end() && it->second == now) {
+                        g_parryWindows.erase(it);
+                    }
+                    else {
+                        return;
+                    }
+                }
+                if (actorHandle && actorHandle.get()) {
+                    actorHandle.get()->SetGraphVariableBool("isParryingCMF", false);
+                }
+                });
+            });
+    }
 }
 
 void Sink::ParryTimerManager::ReduceCommitment(RE::FormID a_formID, int a_reductionMS) {

@@ -170,16 +170,16 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 	}
 
 	Sink::ParryType type = Sink::ParryTimerManager::GetParryType(victim->GetFormID());
-	bool isParryingExternal = false;
-	victim->GetGraphVariableBool("isParryingCMF", isParryingExternal);
 	bool perfectParry = false;
 	victim->GetGraphVariableBool("isPerfectParryingCMF", perfectParry);
+	bool isParryingExternal = false;
+	victim->GetGraphVariableBool("isParryingCMF", isParryingExternal);
 
-	if (type == Sink::ParryType::None && isParryingExternal) {
-		type = Sink::ParryType::Normal;
-	}
-	else if (perfectParry) {
+	if (perfectParry) {
 		type = Sink::ParryType::Perfect;
+	}
+	else if (type == Sink::ParryType::None && isParryingExternal) {
+		type = Sink::ParryType::Normal;
 	}
 
 	if (type == Sink::ParryType::None) {
@@ -319,11 +319,11 @@ namespace Hook_Precision
 		bool perfectParry = false;
 		victim->GetGraphVariableBool("isPerfectParryingCMF", perfectParry);
 
-		if (type == Sink::ParryType::None && isParryingExternal) {
-			type = Sink::ParryType::Normal;
-		}
-		else if (perfectParry) {
+		if (perfectParry) {
 			type = Sink::ParryType::Perfect;
+		}
+		else if (type == Sink::ParryType::None && isParryingExternal) {
+			type = Sink::ParryType::Normal;
 		}
 
 		if (type == Sink::ParryType::None) {
@@ -549,11 +549,11 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	bool perfectParry = false;
 	a_blocker->GetGraphVariableBool("isPerfectParryingCMF", perfectParry);
 
-	if (type == Sink::ParryType::None && isParryingExternal) {
-		type = Sink::ParryType::Normal;
-	}
-	else if (perfectParry) {
+	if (perfectParry) {
 		type = Sink::ParryType::Perfect;
+	}
+	else if (type == Sink::ParryType::None && isParryingExternal) {
+		type = Sink::ParryType::Normal;
 	}
 
 	if (type == Sink::ParryType::None) return false;
