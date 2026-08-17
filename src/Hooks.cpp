@@ -10,17 +10,38 @@ struct NPCParryCapability {
 	int perfectParryMS = 100;
 	int arrowMode = 1;
 	int arrowReflectMode = 1;
+	int arrowReflectTriggers = 1;
 	ParrySettings::CostType arrowCostType = ParrySettings::CostType::None;
+	float arrowCost = 0.0f;
+	RE::FormID arrowCostGlobal = 0;
+	ParrySettings::ValueSource arrowCostSource = ParrySettings::ValueSource::Flat;
+	std::string arrowCostActorValue = "Stamina";
 	int magicMode = 1;
 	int magicReflectMode = 1;
+	int magicReflectTriggers = 1;
 	ParrySettings::CostType magicCostType = ParrySettings::CostType::None;
+	float magicCost = 0.0f;
+	RE::FormID magicCostGlobal = 0;
+	ParrySettings::ValueSource magicCostSource = ParrySettings::ValueSource::Flat;
+	std::string magicCostActorValue = "Magicka";
 	int reflectMeleeMode = 1;
+	int meleeReflectTriggers = 1;
 	ParrySettings::CostType reflectMeleeCostType = ParrySettings::CostType::None;
+	float reflectMeleeCost = 0.0f;
+	RE::FormID reflectMeleeCostGlobal = 0;
+	ParrySettings::ValueSource reflectMeleeCostSource = ParrySettings::ValueSource::Flat;
+	std::string reflectMeleeCostActorValue = "Stamina";
 	int reflectDamageType = 3;
 	float reflectValue = 50.0f;
+	RE::FormID reflectValueGlobal = 0;
+	ParrySettings::ValueSource reflectValueSource = ParrySettings::ValueSource::Flat;
+	std::string reflectValueActorValue = "Block";
 	int meleeStagger = 1;
 	int arrowStagger = 1;
 	int magicStagger = 1;
+	int meleeStaggerSize = 1;
+	int arrowStaggerSize = 1;
+	int magicStaggerSize = 1;
 	int visualMode = 1;
 	int soundMode = 1;
 };
@@ -28,6 +49,11 @@ struct NPCParryCapability {
 static NPCParryCapability GetNPCParryCapability(RE::Actor* a_actor)
 {
 	NPCParryCapability cap;
+	if (!a_actor || (ParrySettings::npcDisableParryPerk != 0 &&
+		ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcDisableParryPerk))) {
+		cap.parryEnabled = false;
+		return cap;
+	}
 
 	// 1. Se o Parry estiver desligado globalmente para NPCs
 	if (!ParrySettings::npcParryEnabled) {
@@ -48,17 +74,38 @@ static NPCParryCapability GetNPCParryCapability(RE::Actor* a_actor)
 					cap.perfectParryMS = rule.npcPerfectParryMS;
 					cap.arrowMode = rule.npcArrowMode;
 					cap.arrowReflectMode = rule.npcArrowReflectMode;
+					cap.arrowReflectTriggers = rule.npcArrowReflectTriggers;
 					cap.arrowCostType = rule.npcArrowCostType;
+					cap.arrowCost = rule.npcArrowCost;
+					cap.arrowCostGlobal = rule.npcArrowCostGlobal;
+					cap.arrowCostSource = rule.npcArrowCostSource;
+					cap.arrowCostActorValue = rule.npcArrowCostActorValue;
 					cap.magicMode = rule.npcMagicMode;
 					cap.magicReflectMode = rule.npcMagicReflectMode;
+					cap.magicReflectTriggers = rule.npcMagicReflectTriggers;
 					cap.magicCostType = rule.npcMagicCostType;
+					cap.magicCost = rule.npcMagicCost;
+					cap.magicCostGlobal = rule.npcMagicCostGlobal;
+					cap.magicCostSource = rule.npcMagicCostSource;
+					cap.magicCostActorValue = rule.npcMagicCostActorValue;
 					cap.reflectMeleeMode = rule.npcReflectMeleeMode;
+					cap.meleeReflectTriggers = rule.npcMeleeReflectTriggers;
 					cap.reflectMeleeCostType = rule.npcReflectMeleeCostType;
+					cap.reflectMeleeCost = rule.npcReflectMeleeCost;
+					cap.reflectMeleeCostGlobal = rule.npcReflectMeleeCostGlobal;
+					cap.reflectMeleeCostSource = rule.npcReflectMeleeCostSource;
+					cap.reflectMeleeCostActorValue = rule.npcReflectMeleeCostActorValue;
 					cap.reflectDamageType = rule.npcReflectDamageType;
 					cap.reflectValue = rule.npcReflectValue;
+					cap.reflectValueGlobal = rule.npcReflectValueGlobal;
+					cap.reflectValueSource = rule.npcReflectValueSource;
+					cap.reflectValueActorValue = rule.npcReflectValueActorValue;
 					cap.meleeStagger = rule.npcMeleeStagger;
 					cap.arrowStagger = rule.npcArrowStagger;
 					cap.magicStagger = rule.npcMagicStagger;
+					cap.meleeStaggerSize = rule.npcMeleeStaggerSize;
+					cap.arrowStaggerSize = rule.npcArrowStaggerSize;
+					cap.magicStaggerSize = rule.npcMagicStaggerSize;
 					cap.visualMode = rule.npcVisualMode;
 					cap.soundMode = rule.npcSoundMode;
 					return cap;
@@ -68,22 +115,43 @@ static NPCParryCapability GetNPCParryCapability(RE::Actor* a_actor)
 	}
 
 	// 3. Fallback: Se não achar nenhum perk, puxa as variáveis globais padrões do mod
-	cap.parryEnabled = ParrySettings::npcParryEnabled;
+	cap.parryEnabled = ParrySettings::npcParryEnabled && ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcParryPerk);
 	cap.normalParryMS = ParrySettings::npcNormalParryMS;
 	cap.perfectParryMS = ParrySettings::npcPerfectParryMS;
-	cap.arrowMode = ParrySettings::npcArrowMode;
-	cap.arrowReflectMode = ParrySettings::npcArrowReflectMode;
+	cap.arrowMode = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcArrowParryPerk) ? ParrySettings::npcArrowMode : 0;
+	cap.arrowReflectMode = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcArrowReflectPerk) ? ParrySettings::npcArrowReflectMode : 0;
+	cap.arrowReflectTriggers = ParrySettings::npcArrowReflectTriggers;
 	cap.arrowCostType = ParrySettings::npcArrowCostType;
-	cap.magicMode = ParrySettings::npcMagicMode;
-	cap.magicReflectMode = ParrySettings::npcMagicReflectMode;
+	cap.arrowCost = ParrySettings::npcArrowCost;
+	cap.arrowCostGlobal = ParrySettings::npcArrowCostGlobal;
+	cap.arrowCostSource = ParrySettings::npcArrowCostSource;
+	cap.arrowCostActorValue = ParrySettings::npcArrowCostActorValue;
+	cap.magicMode = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcMagicParryPerk) ? ParrySettings::npcMagicMode : 0;
+	cap.magicReflectMode = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcMagicReflectPerk) ? ParrySettings::npcMagicReflectMode : 0;
+	cap.magicReflectTriggers = ParrySettings::npcMagicReflectTriggers;
 	cap.magicCostType = ParrySettings::npcMagicCostType;
-	cap.reflectMeleeMode = ParrySettings::npcReflectMeleeMode;
+	cap.magicCost = ParrySettings::npcMagicCost;
+	cap.magicCostGlobal = ParrySettings::npcMagicCostGlobal;
+	cap.magicCostSource = ParrySettings::npcMagicCostSource;
+	cap.magicCostActorValue = ParrySettings::npcMagicCostActorValue;
+	cap.reflectMeleeMode = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcReflectMeleePerk) ? ParrySettings::npcReflectMeleeMode : 0;
+	cap.meleeReflectTriggers = ParrySettings::npcMeleeReflectTriggers;
 	cap.reflectMeleeCostType = ParrySettings::npcReflectMeleeCostType;
+	cap.reflectMeleeCost = ParrySettings::npcReflectMeleeCost;
+	cap.reflectMeleeCostGlobal = ParrySettings::npcReflectMeleeCostGlobal;
+	cap.reflectMeleeCostSource = ParrySettings::npcReflectMeleeCostSource;
+	cap.reflectMeleeCostActorValue = ParrySettings::npcReflectMeleeCostActorValue;
 	cap.reflectDamageType = ParrySettings::npcReflectDamageType;
 	cap.reflectValue = ParrySettings::npcReflectValue;
-	cap.meleeStagger = ParrySettings::npcMeleeStagger;
-	cap.arrowStagger = ParrySettings::npcArrowStagger;
-	cap.magicStagger = ParrySettings::npcMagicStagger;
+	cap.reflectValueGlobal = ParrySettings::npcReflectValueGlobal;
+	cap.reflectValueSource = ParrySettings::npcReflectValueSource;
+	cap.reflectValueActorValue = ParrySettings::npcReflectValueActorValue;
+	cap.meleeStagger = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcMeleeStaggerPerk) ? ParrySettings::npcMeleeStagger : 0;
+	cap.arrowStagger = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcArrowStaggerPerk) ? ParrySettings::npcArrowStagger : 0;
+	cap.magicStagger = ParrySettings::HasRequiredPerk(a_actor, ParrySettings::npcMagicStaggerPerk) ? ParrySettings::npcMagicStagger : 0;
+	cap.meleeStaggerSize = ParrySettings::npcMeleeStaggerSize;
+	cap.arrowStaggerSize = ParrySettings::npcArrowStaggerSize;
+	cap.magicStaggerSize = ParrySettings::npcMagicStaggerSize;
 	cap.visualMode = ParrySettings::npcVisualMode;
 	cap.soundMode = ParrySettings::npcSoundMode;
 
@@ -146,22 +214,50 @@ bool HasEnoughResource(RE::Actor* a_actor, ParrySettings::CostType a_type, float
 	return true;
 }
 
+bool MatchesReflectTrigger(RE::Actor* a_actor, int a_allowedTriggers) {
+	if (!a_actor) return false;
+	const int activeTrigger = static_cast<int>(Sink::ParryTimerManager::GetParryTrigger(a_actor->GetFormID()));
+	return (a_allowedTriggers & activeTrigger) != 0;
+}
+
+bool HasIFrame(RE::Actor* a_actor) {
+	bool hasIFrame = false;
+	return a_actor && a_actor->GetGraphVariableBool("hasIframeCMF", hasIFrame) && hasIFrame;
+}
+
+bool IsUnblockableAttack(RE::Actor* a_attacker) {
+	bool isUnblockable = false;
+	return a_attacker && a_attacker->GetGraphVariableBool("isUnblockableHit", isUnblockable) && isUnblockable;
+}
+
 void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 {
 	logger::debug("Melee hit processed");
 	auto aggressor = hitData.aggressor.get().get();
-	bool isUnblockble = false;
-	if (aggressor) {
-		aggressor->GetGraphVariableBool("isUnblockableHitCMF", isUnblockble);
+	if (!victim || !aggressor) {
+		_ProcessHit(victim, hitData);
+		return;
 	}
-	if (!victim || !aggressor || isUnblockble || !victim->IsBlocking()) {
+	if (HasIFrame(victim)) {
+		hitData.totalDamage = 0.0f;
+		hitData.physicalDamage = 0.0f;
+		hitData.stagger = 0;
+		return;
+	}
+	if (IsUnblockableAttack(aggressor) || (!victim->IsBlocking() && !ParrySettings::bashOpensParryWindow)) {
 		_ProcessHit(victim, hitData);
 		return;
 	}
 
 	bool isPlayer = (victim == RE::PlayerCharacter::GetSingleton());
 	NPCParryCapability cap;
-	if (!isPlayer) {
+	if (isPlayer) {
+		if (!ParrySettings::CanActorUseParry(victim)) {
+			_ProcessHit(victim, hitData);
+			return;
+		}
+	}
+	else {
 		cap = GetNPCParryCapability(victim);
 		if (!cap.parryEnabled) {
 			_ProcessHit(victim, hitData);
@@ -192,13 +288,20 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 		return;
 	}
 
-	int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : cap.reflectMeleeMode;
-	int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : cap.meleeStagger;
+	int reflectMode = isPlayer ? (ParrySettings::HasRequiredPerk(victim, ParrySettings::playerReflectMeleePerk) ? ParrySettings::playerReflectMeleeMode : 0) : cap.reflectMeleeMode;
+	int reflectTriggers = isPlayer ? ParrySettings::playerMeleeReflectTriggers : cap.meleeReflectTriggers;
+	int staggerMode = isPlayer ? (ParrySettings::HasRequiredPerk(victim, ParrySettings::playerMeleeStaggerPerk) ? ParrySettings::playerMeleeStagger : 0) : cap.meleeStagger;
+	int staggerSize = isPlayer ? ParrySettings::playerMeleeStaggerSize : cap.meleeStaggerSize;
 	bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
 	ParrySettings::CostType costType = isPlayer ? ParrySettings::playerReflectMeleeCostType : cap.reflectMeleeCostType;
-	bool shouldReflect = (reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect);
+	float localCost = isPlayer ? ParrySettings::playerReflectMeleeCost : cap.reflectMeleeCost;
+	RE::FormID costGlobal = isPlayer ? ParrySettings::playerReflectMeleeCostGlobal : cap.reflectMeleeCostGlobal;
+	auto costSource = isPlayer ? ParrySettings::playerReflectMeleeCostSource : cap.reflectMeleeCostSource;
+	const std::string& costActorValue = isPlayer ? ParrySettings::playerReflectMeleeCostActorValue : cap.reflectMeleeCostActorValue;
+	bool shouldReflect = ((reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect)) &&
+		MatchesReflectTrigger(victim, reflectTriggers);
 
-	float cost = hitData.totalDamage;
+	float cost = ParrySettings::ResolveParryCost(localCost, costSource, costGlobal, costActorValue, victim);
 
 	if (HasEnoughResource(victim, costType, cost)) {
 		if (isPlayer) {
@@ -219,16 +322,17 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 		aggressor->NotifyAnimationGraph(gotParriedEvent);
 
 		if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
-			int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
+			int reduction = (type == Sink::ParryType::Perfect) ?
+				ParrySettings::ResolveConfigInt(ParrySettings::playerCommitmentReductionPerfectMS, ParrySettings::playerCommitmentReductionPerfectSource, ParrySettings::playerCommitmentReductionPerfectGlobal, ParrySettings::playerCommitmentReductionPerfectActorValue, victim, 0) :
+				ParrySettings::ResolveConfigInt(ParrySettings::playerCommitmentReductionNormalMS, ParrySettings::playerCommitmentReductionNormalSource, ParrySettings::playerCommitmentReductionNormalGlobal, ParrySettings::playerCommitmentReductionNormalActorValue, victim, 0);
 			Sink::ParryTimerManager::ReduceCommitment(victim->GetFormID(), reduction);
 		}
 
 		auto player = RE::PlayerCharacter::GetSingleton();
-		if (!Sink::g_IsSlowed) {
-			if (victim == player || (aggressor == player && ParrySettings::npcParrySlowTime)) {
-				Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
-				Sink::ResetTimeTask();
-			}
+		if (victim == player || (aggressor == player && ParrySettings::npcParrySlowTime)) {
+			float slowTime = ParrySettings::ResolveConfigValue(ParrySettings::slowTimeMultiplier, ParrySettings::slowTimeMultiplierSource, ParrySettings::slowTimeMultiplierGlobal, ParrySettings::slowTimeMultiplierActorValue, victim);
+			int slowDuration = ParrySettings::ResolveConfigInt(ParrySettings::slowTimeDurationMS, ParrySettings::slowTimeDurationSource, ParrySettings::slowTimeDurationGlobal, ParrySettings::slowTimeDurationActorValue, victim, 1);
+			Sink::TriggerSlowTime(slowTime, slowDuration);
 		}
 
 		if (costType != ParrySettings::CostType::None) {
@@ -237,12 +341,15 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 				victim->AsActorValueOwner()->DamageActorValue(av, cost);
 			}
 		}
+		ParrySettings::ApplyParryRestore(victim, type == Sink::ParryType::Perfect);
 
 		if (shouldReflect) {
 			float damageToReflect = hitData.totalDamage;
 			// Árvore Condicional Matemática de Modos de Reflexão (Nativo)
 			int damageType = isPlayer ? ParrySettings::playerReflectDamageType : cap.reflectDamageType;
-			float modifierValue = isPlayer ? ParrySettings::playerReflectValue : cap.reflectValue;
+			float modifierValue = isPlayer ?
+				ParrySettings::ResolveConfigValue(ParrySettings::playerReflectValue, ParrySettings::playerReflectValueSource, ParrySettings::playerReflectValueGlobal, ParrySettings::playerReflectValueActorValue, victim) :
+				ParrySettings::ResolveConfigValue(cap.reflectValue, cap.reflectValueSource, cap.reflectValueGlobal, cap.reflectValueActorValue, victim);
 
 			switch (damageType) {
 			case 0: // Flat Damage
@@ -270,7 +377,7 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 
 		if (shouldStagger) {
 			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
-			float magnitude = (type == Sink::ParryType::Perfect ? 1.0f : 0.5f);
+			float magnitude = ParrySettings::GetStaggerMagnitude(staggerSize, type == Sink::ParryType::Perfect);
 			ApplyStagger(aggressor, magnitude, parryVal);
 		}
 
@@ -294,19 +401,25 @@ namespace Hook_Precision
 		auto victim = const_cast<RE::TESObjectREFR*>(a_hitData.target)->As<RE::Actor>();
 		auto aggressor = a_hitData.attacker;
 
-		if (!victim || !aggressor || !victim->IsBlocking()) {
+		if (!victim || !aggressor) {
 			return ret;
 		}
-
-		bool isUnblockable = false;
-		aggressor->GetGraphVariableBool("isUnblockableHitCMF", isUnblockable);
-		if (isUnblockable) {
+		if (HasIFrame(victim)) {
+			ret.bIgnoreHit = true;
+			return ret;
+		}
+		if ((!victim->IsBlocking() && !ParrySettings::bashOpensParryWindow) || IsUnblockableAttack(aggressor)) {
 			return ret;
 		}
 
 		bool isPlayer = (victim == RE::PlayerCharacter::GetSingleton());
 		NPCParryCapability cap;
-		if (!isPlayer) {
+		if (isPlayer) {
+			if (!ParrySettings::CanActorUseParry(victim)) {
+				return ret;
+			}
+		}
+		else {
 			cap = GetNPCParryCapability(victim);
 			if (!cap.parryEnabled) {
 				return ret;
@@ -334,17 +447,20 @@ namespace Hook_Precision
 			return ret;
 		}
 
-		int reflectMode = isPlayer ? ParrySettings::playerReflectMeleeMode : cap.reflectMeleeMode;
-		int staggerMode = isPlayer ? ParrySettings::playerMeleeStagger : cap.meleeStagger;
+		int reflectMode = isPlayer ? (ParrySettings::HasRequiredPerk(victim, ParrySettings::playerReflectMeleePerk) ? ParrySettings::playerReflectMeleeMode : 0) : cap.reflectMeleeMode;
+		int reflectTriggers = isPlayer ? ParrySettings::playerMeleeReflectTriggers : cap.meleeReflectTriggers;
+		int staggerMode = isPlayer ? (ParrySettings::HasRequiredPerk(victim, ParrySettings::playerMeleeStaggerPerk) ? ParrySettings::playerMeleeStagger : 0) : cap.meleeStagger;
+		int staggerSize = isPlayer ? ParrySettings::playerMeleeStaggerSize : cap.meleeStaggerSize;
 		bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
 		ParrySettings::CostType costType = isPlayer ? ParrySettings::playerReflectMeleeCostType : cap.reflectMeleeCostType;
-		bool shouldReflect = (reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect);
+		float localCost = isPlayer ? ParrySettings::playerReflectMeleeCost : cap.reflectMeleeCost;
+		RE::FormID costGlobal = isPlayer ? ParrySettings::playerReflectMeleeCostGlobal : cap.reflectMeleeCostGlobal;
+		auto costSource = isPlayer ? ParrySettings::playerReflectMeleeCostSource : cap.reflectMeleeCostSource;
+		const std::string& costActorValue = isPlayer ? ParrySettings::playerReflectMeleeCostActorValue : cap.reflectMeleeCostActorValue;
+		bool shouldReflect = ((reflectMode == 1) || (reflectMode == 2 && type == Sink::ParryType::Perfect)) &&
+			MatchesReflectTrigger(victim, reflectTriggers);
 
-		float cost = 0.0f;
-		auto attackerWeaponObj = aggressor->GetEquippedObject(false);
-		if (attackerWeaponObj && attackerWeaponObj->IsWeapon()) {
-			cost = attackerWeaponObj->As<RE::TESObjectWEAP>()->GetAttackDamage();
-		}
+		float cost = ParrySettings::ResolveParryCost(localCost, costSource, costGlobal, costActorValue, victim);
 
 		if (HasEnoughResource(victim, costType, cost)) {
 			if (isPlayer) {
@@ -365,15 +481,16 @@ namespace Hook_Precision
 			aggressor->NotifyAnimationGraph(gotParriedEvent);
 
 			if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
-				int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
+				int reduction = (type == Sink::ParryType::Perfect) ?
+					ParrySettings::ResolveConfigInt(ParrySettings::playerCommitmentReductionPerfectMS, ParrySettings::playerCommitmentReductionPerfectSource, ParrySettings::playerCommitmentReductionPerfectGlobal, ParrySettings::playerCommitmentReductionPerfectActorValue, victim, 0) :
+					ParrySettings::ResolveConfigInt(ParrySettings::playerCommitmentReductionNormalMS, ParrySettings::playerCommitmentReductionNormalSource, ParrySettings::playerCommitmentReductionNormalGlobal, ParrySettings::playerCommitmentReductionNormalActorValue, victim, 0);
 				Sink::ParryTimerManager::ReduceCommitment(victim->GetFormID(), reduction);
 			}
 
-			if (!Sink::g_IsSlowed) {
-				if (isPlayer || (aggressor->IsPlayerRef() && ParrySettings::npcParrySlowTime)) {
-					Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
-					Sink::ResetTimeTask();
-				}
+			if (isPlayer || (aggressor->IsPlayerRef() && ParrySettings::npcParrySlowTime)) {
+				float slowTime = ParrySettings::ResolveConfigValue(ParrySettings::slowTimeMultiplier, ParrySettings::slowTimeMultiplierSource, ParrySettings::slowTimeMultiplierGlobal, ParrySettings::slowTimeMultiplierActorValue, victim);
+				int slowDuration = ParrySettings::ResolveConfigInt(ParrySettings::slowTimeDurationMS, ParrySettings::slowTimeDurationSource, ParrySettings::slowTimeDurationGlobal, ParrySettings::slowTimeDurationActorValue, victim, 1);
+				Sink::TriggerSlowTime(slowTime, slowDuration);
 			}
 
 			if (costType != ParrySettings::CostType::None) {
@@ -382,12 +499,15 @@ namespace Hook_Precision
 					victim->AsActorValueOwner()->DamageActorValue(av, cost);
 				}
 			}
+			ParrySettings::ApplyParryRestore(victim, type == Sink::ParryType::Perfect);
 
 			if (shouldReflect) {
 				float damageToReflect = cost;
 				// NOVO: Árvore Condicional Matemática de Modos de Reflexão (Precision API)
 				int damageType = isPlayer ? ParrySettings::playerReflectDamageType : cap.reflectDamageType;
-				float modifierValue = isPlayer ? ParrySettings::playerReflectValue : cap.reflectValue;
+				float modifierValue = isPlayer ?
+					ParrySettings::ResolveConfigValue(ParrySettings::playerReflectValue, ParrySettings::playerReflectValueSource, ParrySettings::playerReflectValueGlobal, ParrySettings::playerReflectValueActorValue, victim) :
+					ParrySettings::ResolveConfigValue(cap.reflectValue, cap.reflectValueSource, cap.reflectValueGlobal, cap.reflectValueActorValue, victim);
 
 				switch (damageType) {
 				case 0: // Flat
@@ -412,7 +532,7 @@ namespace Hook_Precision
 
 			if (shouldStagger) {
 				int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
-				float magnitude = (type == Sink::ParryType::Perfect ? 1.0f : 0.5f);
+				float magnitude = ParrySettings::GetStaggerMagnitude(staggerSize, type == Sink::ParryType::Perfect);
 				ApplyStagger(aggressor, magnitude, parryVal);
 			}
 
@@ -518,6 +638,12 @@ void ReflectProjectileBack(RE::Actor* a_blocker, RE::Projectile* a_projectile, R
 
 bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, RE::hkpCollidable* a_projectile_collidable)
 {
+	if (!a_blocker || !a_projectile) return false;
+	if (HasIFrame(a_blocker)) {
+		RE::Offset::destroyProjectile(a_projectile);
+		return true;
+	}
+
 	auto player = RE::PlayerCharacter::GetSingleton();
 	bool isPlayer = (a_blocker == player);
 	auto shooterHandle = a_projectile->GetProjectileRuntimeData().shooter;
@@ -527,16 +653,17 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		return false;
 	}
 
-	bool isUnblockable = false;
-	if (shooter) {
-		shooter->GetGraphVariableBool("isUnblockableHitCMF", isUnblockable);
-		if (isUnblockable) {
-			return false;
-		}
+	if (IsUnblockableAttack(shooter)) {
+		return false;
 	}
 
 	NPCParryCapability cap;
-	if (!isPlayer) {
+	if (isPlayer) {
+		if (!ParrySettings::CanActorUseParry(a_blocker)) {
+			return false;
+		}
+	}
+	else {
 		cap = GetNPCParryCapability(a_blocker);
 		if (!cap.parryEnabled) {
 			return false;
@@ -560,8 +687,13 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 
 	bool isArrow = !a_projectile->GetProjectileRuntimeData().spell;
 
-	int currentMode = isArrow ? (isPlayer ? ParrySettings::playerArrowMode : cap.arrowMode)
-		: (isPlayer ? ParrySettings::playerMagicMode : cap.magicMode);
+	int currentMode = 0;
+	if (isArrow) {
+		currentMode = isPlayer ? (ParrySettings::HasRequiredPerk(a_blocker, ParrySettings::playerArrowParryPerk) ? ParrySettings::playerArrowMode : 0) : cap.arrowMode;
+	}
+	else {
+		currentMode = isPlayer ? (ParrySettings::HasRequiredPerk(a_blocker, ParrySettings::playerMagicParryPerk) ? ParrySettings::playerMagicMode : 0) : cap.magicMode;
+	}
 
 	if (currentMode == 0) return false;
 
@@ -571,16 +703,16 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	if (currentMode == 2) {
 		costType = isArrow ? (isPlayer ? ParrySettings::playerArrowCostType : cap.arrowCostType)
 			: (isPlayer ? ParrySettings::playerMagicCostType : cap.magicCostType);
+		float localCost = isArrow ? (isPlayer ? ParrySettings::playerArrowCost : cap.arrowCost)
+			: (isPlayer ? ParrySettings::playerMagicCost : cap.magicCost);
+		RE::FormID costGlobal = isArrow ? (isPlayer ? ParrySettings::playerArrowCostGlobal : cap.arrowCostGlobal)
+			: (isPlayer ? ParrySettings::playerMagicCostGlobal : cap.magicCostGlobal);
+		auto costSource = isArrow ? (isPlayer ? ParrySettings::playerArrowCostSource : cap.arrowCostSource)
+			: (isPlayer ? ParrySettings::playerMagicCostSource : cap.magicCostSource);
+		const std::string& costActorValue = isArrow ? (isPlayer ? ParrySettings::playerArrowCostActorValue : cap.arrowCostActorValue)
+			: (isPlayer ? ParrySettings::playerMagicCostActorValue : cap.magicCostActorValue);
 
-		if (isArrow) {
-			auto launcher = a_projectile->GetProjectileRuntimeData().weaponSource;
-			auto ammo = a_projectile->GetProjectileRuntimeData().ammoSource;
-			if (launcher) cost += launcher->GetAttackDamage();
-			if (ammo) cost += ammo->As<RE::TESAmmo>()->GetRuntimeData().data.damage;
-		}
-		else {
-			cost = a_projectile->GetProjectileRuntimeData().spell->CalculateMagickaCost(a_blocker);
-		}
+		cost = ParrySettings::ResolveParryCost(localCost, costSource, costGlobal, costActorValue, a_blocker);
 	}
 
 	if (!HasEnoughResource(a_blocker, costType, cost)) {
@@ -598,12 +730,29 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		}
 	}
 
-	int reflectModeSetting = isArrow ? (isPlayer ? ParrySettings::playerArrowReflectMode : cap.arrowReflectMode)
-		: (isPlayer ? ParrySettings::playerMagicReflectMode : cap.magicReflectMode);
+	int reflectModeSetting = 0;
+	int reflectTriggers = 1;
+	if (isArrow) {
+		reflectModeSetting = isPlayer ? (ParrySettings::HasRequiredPerk(a_blocker, ParrySettings::playerArrowReflectPerk) ? ParrySettings::playerArrowReflectMode : 0) : cap.arrowReflectMode;
+		reflectTriggers = isPlayer ? ParrySettings::playerArrowReflectTriggers : cap.arrowReflectTriggers;
+	}
+	else {
+		reflectModeSetting = isPlayer ? (ParrySettings::HasRequiredPerk(a_blocker, ParrySettings::playerMagicReflectPerk) ? ParrySettings::playerMagicReflectMode : 0) : cap.magicReflectMode;
+		reflectTriggers = isPlayer ? ParrySettings::playerMagicReflectTriggers : cap.magicReflectTriggers;
+	}
 
-	bool shouldReflect = (reflectModeSetting == 1) || (reflectModeSetting == 2 && type == Sink::ParryType::Perfect);
-	int staggerMode = isArrow ? (isPlayer ? ParrySettings::playerArrowStagger : cap.arrowStagger)
-		: (isPlayer ? ParrySettings::playerMagicStagger : cap.magicStagger);
+	bool shouldReflect = ((reflectModeSetting == 1) || (reflectModeSetting == 2 && type == Sink::ParryType::Perfect)) &&
+		MatchesReflectTrigger(a_blocker, reflectTriggers);
+	int staggerMode = 0;
+	int staggerSize = 1;
+	if (isArrow) {
+		staggerMode = isPlayer ? (ParrySettings::HasRequiredPerk(a_blocker, ParrySettings::playerArrowStaggerPerk) ? ParrySettings::playerArrowStagger : 0) : cap.arrowStagger;
+		staggerSize = isPlayer ? ParrySettings::playerArrowStaggerSize : cap.arrowStaggerSize;
+	}
+	else {
+		staggerMode = isPlayer ? (ParrySettings::HasRequiredPerk(a_blocker, ParrySettings::playerMagicStaggerPerk) ? ParrySettings::playerMagicStagger : 0) : cap.magicStagger;
+		staggerSize = isPlayer ? ParrySettings::playerMagicStaggerSize : cap.magicStaggerSize;
+	}
 
 	bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
 
@@ -612,14 +761,14 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 		if (shooterActor && shooterActor->As<RE::Actor>()) {
 			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
 			shooterActor->SetGraphVariableInt("ShouldStaggerCMF", parryVal);
+			shooterActor->SetGraphVariableFloat("ShouldStaggerMagnitudeCMF", ParrySettings::GetStaggerMagnitude(staggerSize, type == Sink::ParryType::Perfect));
 		}
 	}
 
-	if (!Sink::g_IsSlowed) {
-		if (a_blocker == player || (shooter == player && ParrySettings::npcParrySlowTime)) {
-			Sink::ApplySlowTime(ParrySettings::slowTimeMultiplier);
-			Sink::ResetTimeTask();
-		}
+	if (a_blocker == player || (shooter == player && ParrySettings::npcParrySlowTime)) {
+		float slowTime = ParrySettings::ResolveConfigValue(ParrySettings::slowTimeMultiplier, ParrySettings::slowTimeMultiplierSource, ParrySettings::slowTimeMultiplierGlobal, ParrySettings::slowTimeMultiplierActorValue, a_blocker);
+		int slowDuration = ParrySettings::ResolveConfigInt(ParrySettings::slowTimeDurationMS, ParrySettings::slowTimeDurationSource, ParrySettings::slowTimeDurationGlobal, ParrySettings::slowTimeDurationActorValue, a_blocker, 1);
+		Sink::TriggerSlowTime(slowTime, slowDuration);
 	}
 
 	Sink::PlayParryEffects(a_blocker, a_projectile, isArrow ? Sink::ParrySource::Arrow : Sink::ParrySource::Magic, type);
@@ -645,9 +794,12 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	if (shooter) {
 		shooter->NotifyAnimationGraph(gotParriedEvent);
 	}
+	ParrySettings::ApplyParryRestore(a_blocker, type == Sink::ParryType::Perfect);
 
 	if (isPlayer && ParrySettings::playerParryCommitmentEnabled) {
-		int reduction = (type == Sink::ParryType::Perfect) ? ParrySettings::playerCommitmentReductionPerfectMS : ParrySettings::playerCommitmentReductionNormalMS;
+		int reduction = (type == Sink::ParryType::Perfect) ?
+			ParrySettings::ResolveConfigInt(ParrySettings::playerCommitmentReductionPerfectMS, ParrySettings::playerCommitmentReductionPerfectSource, ParrySettings::playerCommitmentReductionPerfectGlobal, ParrySettings::playerCommitmentReductionPerfectActorValue, a_blocker, 0) :
+			ParrySettings::ResolveConfigInt(ParrySettings::playerCommitmentReductionNormalMS, ParrySettings::playerCommitmentReductionNormalSource, ParrySettings::playerCommitmentReductionNormalGlobal, ParrySettings::playerCommitmentReductionNormalActorValue, a_blocker, 0);
 		Sink::ParryTimerManager::ReduceCommitment(a_blocker->GetFormID(), reduction);
 	}
 
@@ -682,12 +834,17 @@ inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointColle
 				int pendingStagger = 0;
 				if (target->GetGraphVariableInt("ShouldStaggerCMF", pendingStagger) && pendingStagger > 0) {
 					float magnitude = (pendingStagger == 2) ? 1.0f : 0.5f;
+					float configuredMagnitude = 0.0f;
+					if (target->GetGraphVariableFloat("ShouldStaggerMagnitudeCMF", configuredMagnitude) && configuredMagnitude > 0.0f) {
+						magnitude = configuredMagnitude;
+					}
 
 					logger::debug("Applying pending stagger to {} (Type: {})", target->GetName(), pendingStagger);
 					ApplyStagger(target, magnitude, pendingStagger);
 
 					// Reseta para 0 após aplicar
 					target->SetGraphVariableInt("ShouldStaggerCMF", 0);
+					target->SetGraphVariableFloat("ShouldStaggerMagnitudeCMF", 0.0f);
 				}
 			}
 		}

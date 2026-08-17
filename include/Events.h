@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <shared_mutex>
 #include <chrono> // Novo: para controle de tempo
+#include <cstdint>
 #include <unordered_map> // Novo: para mapear atores e tempos
 #include <set>
 
@@ -10,8 +11,6 @@ extern RE::TESEffectShader* PerfParry;
 
 
 namespace Sink {
-    inline bool g_IsSlowed = false;
-
      inline RE::BGSExplosion* ParryNPlayer = nullptr;
      inline RE::BGSExplosion* ParryNPlayer2 = nullptr;
      inline RE::BGSExplosion* ParryNPlayer3 = nullptr;
@@ -37,20 +36,15 @@ namespace Sink {
      inline RE::BGSExplosion* ParryPNPCS2 = nullptr;
      inline RE::BGSExplosion* ParryPNPCS3 = nullptr;
 
-     inline RE::BGSExplosion* ParryNPlayerSound = nullptr;
-     inline RE::BGSExplosion* ParryNPlayerSSound = nullptr;
-     inline RE::BGSExplosion* ParryPPlayerSound = nullptr;
-     inline RE::BGSExplosion* ParryPPlayerSSound = nullptr;
-     inline RE::BGSExplosion* ParryNNPCSound = nullptr;
-     inline RE::BGSExplosion* ParryNNPCSSound = nullptr;
-     inline RE::BGSExplosion* ParryPNPCSound = nullptr;
-     inline RE::BGSExplosion* ParryPNPCSSound = nullptr;
+     inline RE::BGSSoundDescriptorForm* ParryNormalSound = nullptr;
+     inline RE::BGSSoundDescriptorForm* ParryNormalShieldSound = nullptr;
+     inline RE::BGSSoundDescriptorForm* ParryPerfectSound = nullptr;
+     inline RE::BGSSoundDescriptorForm* ParryPerfectShieldSound = nullptr;
 
 
      inline RE::TESObjectACTI* Marker = nullptr;
 
   
-    extern inline RE::BGSSoundDescriptorForm* g_ParrySound = nullptr;
     extern inline RE::TESObjectACTI* g_ParryVisualActivator = nullptr;
     inline bool isProcessingRegistration = false;
 
@@ -93,13 +87,20 @@ namespace Sink {
         Perfect
     };
 
+    enum class ParryTrigger : std::uint8_t {
+        Block = 1,
+        Bash = 2,
+        PowerBash = 4
+    };
+
     enum class ParrySource { Melee, Arrow, Magic };
 
     class ParryTimerManager {
     public:
-        static void StartWindow(RE::FormID a_formID, bool a_isPlayer);
+        static void StartWindow(RE::FormID a_formID, bool a_isPlayer, ParryTrigger a_trigger = ParryTrigger::Block);
         static void ReduceCommitment(RE::FormID a_formID, int a_reductionMS);
         static ParryType GetParryType(RE::FormID a_formID);
+        static ParryTrigger GetParryTrigger(RE::FormID a_formID);
         static void RemoveWindow(RE::FormID a_formID);
         inline static std::map<RE::FormID, std::chrono::steady_clock::time_point> g_parryCommitments;
         static void CleanupExpiredWindows();
@@ -107,11 +108,11 @@ namespace Sink {
     private:
         // Define a duração da janela (ex: 0.5 segundos)
         inline static std::unordered_map<RE::FormID, std::chrono::steady_clock::time_point> g_parryWindows;
+        inline static std::unordered_map<RE::FormID, ParryTrigger> g_parryTriggers;
         inline static std::shared_mutex g_parryMutex;
     };
 
-    void ApplySlowTime(float a_multiplier);
-    void ResetTimeTask();
+    void TriggerSlowTime(float a_multiplier, int a_durationMS);
 
     void PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::ParrySource a_source, Sink::ParryType a_type);
 

@@ -43,15 +43,32 @@ namespace FormUtil {
 
     // Função auxiliar para reverter string para FormID no load do JSON
     RE::FormID FormIDFromString(const std::string& str) {
+        if (str.empty()) return 0;
+
+        if (auto form = RE::TESForm::LookupByEditorID(str)) {
+            return form->GetFormID();
+        }
+
         auto pos = str.find('|');
         if (pos != std::string::npos) {
             std::string plugin = str.substr(0, pos);
             std::string idStr = str.substr(pos + 1);
-            RE::FormID localId = std::stoul(idStr, nullptr, 16);
-            auto dataHandler = RE::TESDataHandler::GetSingleton();
-            return dataHandler ? dataHandler->LookupFormID(localId, plugin) : 0;
+            try {
+                RE::FormID localId = std::stoul(idStr, nullptr, 16);
+                auto dataHandler = RE::TESDataHandler::GetSingleton();
+                return dataHandler ? dataHandler->LookupFormID(localId, plugin) : 0;
+            }
+            catch (...) {
+                return 0;
+            }
         }
-        return str.empty() ? 0 : std::stoul(str, nullptr, 16);
+
+        try {
+            return std::stoul(str, nullptr, 16);
+        }
+        catch (...) {
+            return 0;
+        }
     }
 }
 
@@ -69,6 +86,32 @@ void Manager::PopulateAllLists() {
         if (cb) cb();
     }
     _readyCallbacks.clear();
+}
+
+void Manager::RefreshLists(std::string_view a_signatures) {
+    const auto includes = [a_signatures](std::string_view a_signature) {
+        std::size_t begin = 0;
+        while (begin <= a_signatures.size()) {
+            const auto end = a_signatures.find(',', begin);
+            auto token = a_signatures.substr(begin, end == std::string_view::npos ? a_signatures.size() - begin : end - begin);
+            while (!token.empty() && token.front() == ' ') token.remove_prefix(1);
+            while (!token.empty() && token.back() == ' ') token.remove_suffix(1);
+            if (token == a_signature) return true;
+            if (end == std::string_view::npos) break;
+            begin = end + 1;
+        }
+        return false;
+    };
+
+    if (a_signatures.empty() || includes("All")) {
+        _isPopulated = false;
+        PopulateAllLists();
+        return;
+    }
+    if (includes("PERK")) PopulateList<RE::BGSPerk>("Perk");
+    if (includes("GLOB")) {
+        PopulateList<RE::TESGlobal>("Global", [](RE::TESGlobal* glob) { return glob != nullptr; });
+    }
 }
 
 const std::vector<InternalFormInfo>& Manager::GetList(const std::string& typeName) {
