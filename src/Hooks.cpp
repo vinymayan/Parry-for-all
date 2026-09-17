@@ -158,13 +158,28 @@ static NPCParryCapability GetNPCParryCapability(RE::Actor* a_actor)
 	return cap;
 }
 
-RE::ActorValue GetAttackerMeleeSkill(RE::Actor* a_attacker) {
-	if (!a_attacker) return RE::ActorValue::kOneHanded;
+RE::TESObjectWEAP* GetEquippedWeapon(RE::Actor* a_actor)
+{
+	if (!a_actor) {
+		return nullptr;
+	}
 
-	// Checa a arma equipada na mão direita
-	auto weaponObj = a_attacker->GetEquippedObject(false);
-	if (weaponObj && weaponObj->IsWeapon()) {
-		auto weapon = weaponObj->As<RE::TESObjectWEAP>();
+	for (const bool leftHand : { false, true }) {
+		auto* equippedObject = a_actor->GetEquippedObject(leftHand);
+		if (equippedObject && equippedObject->IsWeapon()) {
+			if (auto* weapon = equippedObject->As<RE::TESObjectWEAP>()) {
+				return weapon;
+			}
+		}
+	}
+
+	return nullptr;
+}
+
+RE::ActorValue GetAttackerMeleeSkill(RE::Actor* a_attacker) {
+    if (!a_attacker) return RE::ActorValue::kUnarmedDamage;
+
+	if (auto* weapon = GetEquippedWeapon(a_attacker)) {
 		switch (weapon->GetWeaponType()) {
 		case RE::WEAPON_TYPE::kTwoHandAxe:
 		case RE::WEAPON_TYPE::kTwoHandSword:
@@ -178,7 +193,7 @@ RE::ActorValue GetAttackerMeleeSkill(RE::Actor* a_attacker) {
 			return RE::ActorValue::kOneHanded;
 		}
 	}
-	return RE::ActorValue::kOneHanded; // Padrão caso não consiga ler a arma
+	return RE::ActorValue::kUnarmedDamage;
 }
 
 void ApplyStagger(RE::Actor* a_target, float a_magnitude, int a_parryValue) {
@@ -199,6 +214,7 @@ RE::ActorValue GetAVFromCostType(ParrySettings::CostType a_type) {
 
 bool HasEnoughResource(RE::Actor* a_actor, ParrySettings::CostType a_type, float a_cost) {
 	if (a_type == ParrySettings::CostType::None || a_cost <= 0.0f) return true;
+	if (!a_actor) return false;
 
 	RE::ActorValue resourceAV = RE::ActorValue::kNone;
 	switch (a_type) {
@@ -383,6 +399,31 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 
 		Sink::PlayParryEffects(victim, nullptr, Sink::ParrySource::Melee, type);
 		hitData.totalDamage = 0;
+		if (ParrySettings::parryFeedback == 1) {
+			victim->NotifyAnimationGraph("recoilStart");
+		}
+		else if (ParrySettings::parryFeedback == 2) {
+			// Keep the native block feedback, but remove the incoming hit's payload.
+			hitData.physicalDamage = 0.0f;
+			hitData.targetedLimbDamage = 0.0f;
+			hitData.resistedPhysicalDamage = 0.0f;
+			hitData.resistedTypedDamage = 0.0f;
+			hitData.stagger = 0.0f;
+			hitData.pushBack = 0.0f;
+			hitData.reflectedDamage = 0.0f;
+			hitData.sneakAttackBonus = 0.0f;
+			hitData.bonusHealthDamageMult = 0.0f;
+			hitData.criticalDamageMult = 0.0f;
+			hitData.criticalEffect = nullptr;
+			hitData.attackDataSpell = nullptr;
+			hitData.percentBlocked = 1.0f;
+			hitData.flags.reset(RE::HitData::Flag::kCritical, RE::HitData::Flag::kCriticalOnDeath,
+				RE::HitData::Flag::kFatal, RE::HitData::Flag::kDismemberLimb,
+				RE::HitData::Flag::kExplodeLimb, RE::HitData::Flag::kCrippleLimb,
+				RE::HitData::Flag::kDisarm, RE::HitData::Flag::kDisableWeapon);
+			hitData.flags.set(RE::HitData::Flag::kBlocked);
+			_ProcessHit(victim, hitData);
+		}
 		return;
 	}
 	_ProcessHit(victim, hitData);
@@ -406,6 +447,11 @@ namespace Hook_Precision
 		}
 		if (HasIFrame(victim)) {
 			ret.bIgnoreHit = true;
+			return ret;
+		}
+		if (ParrySettings::parryFeedback == 2) {
+			// Let the native hit hook validate and resolve Hit Block once, with the
+			// original damage available for reflection before it sanitizes HitData.
 			return ret;
 		}
 		if ((!victim->IsBlocking() && !ParrySettings::bashOpensParryWindow) || IsUnblockableAttack(aggressor)) {
@@ -537,6 +583,9 @@ namespace Hook_Precision
 			}
 
 			Sink::PlayParryEffects(victim, nullptr, Sink::ParrySource::Melee, type);
+			if (ParrySettings::parryFeedback == 1) {
+				victim->NotifyAnimationGraph("recoilStart");
+			}
 			ret.bIgnoreHit = true;
 		}
 
@@ -647,7 +696,8 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	auto player = RE::PlayerCharacter::GetSingleton();
 	bool isPlayer = (a_blocker == player);
 	auto shooterHandle = a_projectile->GetProjectileRuntimeData().shooter;
-	auto shooter = shooterHandle.get().get() ? shooterHandle.get().get()->As<RE::Actor>() : nullptr;
+	auto shooterRef = shooterHandle.get();
+	auto* shooter = shooterRef ? shooterRef->As<RE::Actor>() : nullptr;
 
 	if (shooter && shooter->IsPlayerRef() && !ParrySettings::npcParryPlayerEnabled) {
 		return false;
@@ -757,8 +807,8 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	bool shouldStagger = (staggerMode == 1) || (staggerMode == 2 && type == Sink::ParryType::Perfect);
 
 	if (shouldStagger) {
-		auto shooterActor = a_projectile->GetProjectileRuntimeData().shooter.get().get();
-		if (shooterActor && shooterActor->As<RE::Actor>()) {
+		auto shooterReference = a_projectile->GetProjectileRuntimeData().shooter.get();
+		if (auto* shooterActor = shooterReference ? shooterReference->As<RE::Actor>() : nullptr) {
 			int parryVal = (type == Sink::ParryType::Perfect ? 2 : 1);
 			shooterActor->SetGraphVariableInt("ShouldStaggerCMF", parryVal);
 			shooterActor->SetGraphVariableFloat("ShouldStaggerMagnitudeCMF", ParrySettings::GetStaggerMagnitude(staggerSize, type == Sink::ParryType::Perfect));
@@ -808,44 +858,50 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 
 inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointCollector* a_AllCdPointCollector)
 {
-	if (a_AllCdPointCollector) {
-		for (auto& hit : a_AllCdPointCollector->hits) {
-			auto refrA = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableA);
-			auto refrB = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableB);
-			RE::Actor* target = nullptr;
-			RE::hkpCollidable* projectileCollidable = nullptr;
+	if (!a_projectile || !a_AllCdPointCollector) {
+		return false;
+	}
 
-			if (refrA && refrA->formType == RE::FormType::ActorCharacter) {
-				target = refrA->As<RE::Actor>();
-				projectileCollidable = const_cast<RE::hkpCollidable*>(hit.rootCollidableB);
-			}
-			else if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
-				target = refrB->As<RE::Actor>();
-				projectileCollidable = const_cast<RE::hkpCollidable*>(hit.rootCollidableA);
+	for (auto& hit : a_AllCdPointCollector->hits) {
+		if (!hit.rootCollidableA || !hit.rootCollidableB) {
+			continue;
+		}
+
+		auto refrA = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableA);
+		auto refrB = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableB);
+		RE::Actor* target = nullptr;
+		RE::hkpCollidable* projectileCollidable = nullptr;
+
+		if (refrA && refrA->formType == RE::FormType::ActorCharacter) {
+			target = refrA->As<RE::Actor>();
+			projectileCollidable = const_cast<RE::hkpCollidable*>(hit.rootCollidableB);
+		}
+		else if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
+			target = refrB->As<RE::Actor>();
+			projectileCollidable = const_cast<RE::hkpCollidable*>(hit.rootCollidableA);
+		}
+
+		if (target) {
+			// 1. Tenta processar como um bloqueio/parry
+			if (processProjectileBlock(target, a_projectile, projectileCollidable)) {
+				return true; // Se bloqueou, ignora a colisão original
 			}
 
-			if (target) {
-				// 1. Tenta processar como um bloqueio/parry
-				if (processProjectileBlock(target, a_projectile, projectileCollidable)) {
-					return true; // Se bloqueou, ignora a colisão original
+			// 2. Se NÃO foi um bloqueio, verifica se este ator tem um stagger pendente (ShouldStaggerCMF)
+			int pendingStagger = 0;
+			if (target->GetGraphVariableInt("ShouldStaggerCMF", pendingStagger) && pendingStagger > 0) {
+				float magnitude = (pendingStagger == 2) ? 1.0f : 0.5f;
+				float configuredMagnitude = 0.0f;
+				if (target->GetGraphVariableFloat("ShouldStaggerMagnitudeCMF", configuredMagnitude) && configuredMagnitude > 0.0f) {
+					magnitude = configuredMagnitude;
 				}
 
-				// 2. Se NÃO foi um bloqueio, verifica se este ator tem um stagger pendente (ShouldStaggerCMF)
-				int pendingStagger = 0;
-				if (target->GetGraphVariableInt("ShouldStaggerCMF", pendingStagger) && pendingStagger > 0) {
-					float magnitude = (pendingStagger == 2) ? 1.0f : 0.5f;
-					float configuredMagnitude = 0.0f;
-					if (target->GetGraphVariableFloat("ShouldStaggerMagnitudeCMF", configuredMagnitude) && configuredMagnitude > 0.0f) {
-						magnitude = configuredMagnitude;
-					}
+				logger::debug("Applying pending stagger to {} (Type: {})", target->GetName(), pendingStagger);
+				ApplyStagger(target, magnitude, pendingStagger);
 
-					logger::debug("Applying pending stagger to {} (Type: {})", target->GetName(), pendingStagger);
-					ApplyStagger(target, magnitude, pendingStagger);
-
-					// Reseta para 0 após aplicar
-					target->SetGraphVariableInt("ShouldStaggerCMF", 0);
-					target->SetGraphVariableFloat("ShouldStaggerMagnitudeCMF", 0.0f);
-				}
+				// Reseta para 0 após aplicar
+				target->SetGraphVariableInt("ShouldStaggerCMF", 0);
+				target->SetGraphVariableFloat("ShouldStaggerMagnitudeCMF", 0.0f);
 			}
 		}
 	}
@@ -855,7 +911,7 @@ inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointColle
 void Hook_OnProjectileCollision::OnArrowCollision(RE::Projectile* a_this, RE::hkpAllCdPointCollector* a_AllCdPointCollector)
 {
 	logger::debug("Arrow collided");
-	if(shouldIgnoreHit(a_this, a_AllCdPointCollector)){
+	if (a_this && shouldIgnoreHit(a_this, a_AllCdPointCollector)) {
 		return;
 	}
 	_arrowCollission(a_this, a_AllCdPointCollector);
@@ -891,17 +947,17 @@ PRECISION_API::WeaponCollisionCallbackReturn W2W_System::PrecisionWeaponsCallbac
 	if (ParrySettings::w2wMode == 1 && isPlayerInvolved) return ret;
 
 	// 1. Coleta Dados das Armas e Dano Base
-	auto attackerWeaponObj = hit_causer->GetEquippedObject(false);
-	auto defenderWeaponObj = hit_target->GetEquippedObject(false);
+	auto* attackerWeapon = GetEquippedWeapon(hit_causer);
+	auto* defenderWeapon = GetEquippedWeapon(hit_target);
 
 	float attackerDamage = 0.0f;
-	if (attackerWeaponObj && attackerWeaponObj->IsWeapon()) {
-		attackerDamage = attackerWeaponObj->As<RE::TESObjectWEAP>()->GetAttackDamage();
+	if (attackerWeapon) {
+		attackerDamage = attackerWeapon->GetAttackDamage();
 	}
 
 	float defenderDamage = 0.0f;
-	if (defenderWeaponObj && defenderWeaponObj->IsWeapon()) {
-		defenderDamage = defenderWeaponObj->As<RE::TESObjectWEAP>()->GetAttackDamage();
+	if (defenderWeapon) {
+		defenderDamage = defenderWeapon->GetAttackDamage();
 	}
 
 	// 2. Coleta a Skill atual dos atores com suas armas
@@ -923,16 +979,16 @@ PRECISION_API::WeaponCollisionCallbackReturn W2W_System::PrecisionWeaponsCallbac
 
 	bool attackerWins = roll < attackerWinChance;
 
-	RE::Actor* winner = attackerWins ? hit_causer : hit_target;
-	RE::Actor* loser = attackerWins ? hit_target : hit_causer;
+	const RE::FormID winnerFormID = attackerWins ? hit_causer->GetFormID() : hit_target->GetFormID();
 	// 5. Verifica quem deve receber a reação com base na UI
 	bool affectAttacker = (ParrySettings::w2wReactionTarget == 1 || ParrySettings::w2wReactionTarget == 3);
 	bool affectDefender = (ParrySettings::w2wReactionTarget == 2 || ParrySettings::w2wReactionTarget == 3);
 
-	const RE::NiPoint3 hitPos = a_precisionHitData.hitPos;
+	const auto hitCauserHandle = hit_causer->CreateRefHandle();
+	const auto hitTargetHandle = hit_target->CreateRefHandle();
 
 	// Aplica os Graph Events através de uma Task no SKSE para thread safety
-	SKSE::GetTaskInterface()->AddTask([winner, loser, hit_causer, hit_target, hitPos, affectAttacker, affectDefender]() {
+	SKSE::GetTaskInterface()->AddTask([hitCauserHandle, hitTargetHandle, winnerFormID, affectAttacker, affectDefender]() {
 
 		// Lambda interna para aplicar a reação correta
 		auto applyReaction = [](RE::Actor* actor, bool isWinner) {
@@ -952,14 +1008,22 @@ PRECISION_API::WeaponCollisionCallbackReturn W2W_System::PrecisionWeaponsCallbac
 			}
 		};
 
-		// Aplica ao atacante (hit_causer) se a UI permitir
-		if (affectAttacker && hit_causer) {
-			applyReaction(hit_causer, hit_causer == winner);
+		// Handles prevent a queued task from dereferencing actors unloaded after
+		// the Precision callback returned.
+		if (affectAttacker) {
+			if (auto hitCauser = hitCauserHandle.get(); hitCauser) {
+				if (auto* actor = hitCauser->As<RE::Actor>()) {
+					applyReaction(actor, actor->GetFormID() == winnerFormID);
+				}
+			}
 		}
 
-		// Aplica ao defensor (hit_target) se a UI permitir
-		if (affectDefender && hit_target) {
-			applyReaction(hit_target, hit_target == winner);
+		if (affectDefender) {
+			if (auto hitTarget = hitTargetHandle.get(); hitTarget) {
+				if (auto* actor = hitTarget->As<RE::Actor>()) {
+					applyReaction(actor, actor->GetFormID() == winnerFormID);
+				}
+			}
 		}
 		});
 

@@ -1038,6 +1038,7 @@ namespace ParrySettings {
 
         doc.AddMember("cancelParryOnBlockStop", cancelParryOnBlockStop, allocator);
         doc.AddMember("bashOpensParryWindow", bashOpensParryWindow, allocator);
+        doc.AddMember("parryFeedback", parryFeedback, allocator);
 
         // Player
         doc.AddMember("playerNormalParryMS", playerNormalParryMS, allocator);
@@ -1217,6 +1218,8 @@ namespace ParrySettings {
             if (doc.IsObject()) {
                 if (doc.HasMember("cancelParryOnBlockStop")) cancelParryOnBlockStop = doc["cancelParryOnBlockStop"].GetBool();
                 if (doc.HasMember("bashOpensParryWindow")) bashOpensParryWindow = doc["bashOpensParryWindow"].GetBool();
+                parryFeedback = doc.HasMember("parryFeedback") && doc["parryFeedback"].IsInt() ?
+                    std::clamp(doc["parryFeedback"].GetInt(), 0, 2) : 0;
                 if (doc.HasMember("playerNormalParryMS")) playerNormalParryMS = doc["playerNormalParryMS"].GetInt();
                 if (doc.HasMember("playerPerfectParryMS")) playerPerfectParryMS = doc["playerPerfectParryMS"].GetInt();
                 if (doc.HasMember("playerParryEnabled")) playerParryEnabled = doc["playerParryEnabled"].GetBool();
@@ -1913,6 +1916,13 @@ namespace ParrySettings {
     void GeneralMenu()
     {
         bool changed = false;
+
+        const char* feedbackOptions[] = {
+            GetLoc("menu.opt_feedback_none", "None"),
+            GetLoc("menu.opt_feedback_recoil", "Recoil"),
+            GetLoc("menu.opt_feedback_hit_block", "Hit Block")
+        };
+        if (ImGuiMCP::Combo(GetLoc("menu.parry_feedback", "Parry Feedback"), &parryFeedback, feedbackOptions, 3)) changed = true;
 
         const char* w2wModeOptions[] = {
             GetLoc("menu.opt_disabled", "Disabled"),

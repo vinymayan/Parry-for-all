@@ -42,6 +42,7 @@ namespace ParrySettings {
 
     inline bool cancelParryOnBlockStop = true;
     inline bool bashOpensParryWindow = false;
+    inline int parryFeedback = 2; // 0: None, 1: Recoil, 2: Hit Block
 
     // Player Timings
     inline int playerNormalParryMS = 300;

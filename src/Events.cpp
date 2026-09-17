@@ -2,6 +2,8 @@
 #include "Settings.h"
 #include "DelayedDispatcher.h"
 #include "ClibUtil/editorID.hpp"
+#include <array>
+#include <unordered_set>
 
 RE::TESIdleForm* anim = nullptr;
 RE::TESEffectShader* parry = nullptr;
@@ -13,6 +15,162 @@ namespace {
     bool g_slowTimeActive = false;
     std::mutex g_parrySoundMutex;
     std::unordered_map<RE::FormID, RE::BSSoundHandle> g_parrySoundHandles;
+    std::shared_mutex g_parryFormsMutex;
+    std::mutex g_visualWarningMutex;
+    std::unordered_set<std::string> g_visualWarnings;
+
+    struct VisualEffect {
+        RE::BGSExplosion* form;
+        std::string_view editorID;
+    };
+
+    void WarnVisualOnce(std::string a_key, std::string a_message)
+    {
+        std::scoped_lock lock(g_visualWarningMutex);
+        if (g_visualWarnings.insert(std::move(a_key)).second) {
+            logger::warn("{}", a_message);
+        }
+    }
+
+    bool HasEquippedShield(RE::Actor* a_actor)
+    {
+        if (!a_actor) {
+            return false;
+        }
+
+        auto* leftHandObject = a_actor->GetEquippedObject(true);
+        if (!leftHandObject) {
+            return false;
+        }
+
+        auto* armor = leftHandObject->As<RE::TESObjectARMO>();
+        return armor && armor->IsShield();
+    }
+
+    bool UsesLeftHandVisualAnchor(RE::Actor* a_actor)
+    {
+        if (HasEquippedShield(a_actor)) {
+            return true;
+        }
+
+        // Dual-wield and left-hand-only loadouts should anchor the visual to the
+        // hand that performs the modded block instead of always using WEAPON.
+        auto* leftHandObject = a_actor ? a_actor->GetEquippedObject(true) : nullptr;
+        return leftHandObject && leftHandObject->IsWeapon();
+    }
+
+    bool ResolveParryVisualNode(RE::Actor* a_actor, bool a_preferLeftHand, RE::BSFixedString& a_nodeName)
+    {
+        auto* root = a_actor ? a_actor->Get3D() : nullptr;
+        if (!root) {
+            return false;
+        }
+
+        constexpr std::array<std::string_view, 4> leftCandidates{
+            "SHIELD", "NPC L Hand [LHnd]", "WEAPON", "NPC R Hand [RHnd]"
+        };
+        constexpr std::array<std::string_view, 4> rightCandidates{
+            "WEAPON", "NPC R Hand [RHnd]", "SHIELD", "NPC L Hand [LHnd]"
+        };
+        const auto& candidates = a_preferLeftHand ? leftCandidates : rightCandidates;
+
+        for (const auto candidate : candidates) {
+            RE::BSFixedString nodeName(candidate);
+            if (root->GetObjectByName(nodeName)) {
+                a_nodeName = std::move(nodeName);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::array<VisualEffect, 3> SelectParryVisuals(bool a_isPlayer, bool a_leftHand, Sink::ParryType a_type)
+    {
+        const bool perfect = a_type == Sink::ParryType::Perfect;
+
+        if (a_isPlayer) {
+            if (a_leftHand) {
+                return perfect ?
+                    std::array<VisualEffect, 3>{ {
+                        { Sink::ParryPPlayerS, "ParryPerfectPlayerShield" },
+                        { Sink::ParryPPlayerS2, "ParryPerfectPlayerShield2" },
+                        { Sink::ParryPPlayerS3, "ParryPerfectPlayerShield3" } } } :
+                    std::array<VisualEffect, 3>{ {
+                        { Sink::ParryNPlayerS, "ParryNormalPlayerShield" },
+                        { Sink::ParryNPlayerS2, "ParryNormalPlayerShield2" },
+                        { Sink::ParryNPlayerS3, "ParryNormalPlayerShield3" } } };
+            }
+
+            return perfect ?
+                std::array<VisualEffect, 3>{ {
+                    { Sink::ParryPPlayer, "ParryPerfectPlayer" },
+                    { Sink::ParryPPlayer2, "ParryPerfectPlayer2" },
+                    { Sink::ParryPPlayer3, "ParryPerfectPlayer3" } } } :
+                std::array<VisualEffect, 3>{ {
+                    { Sink::ParryNPlayer, "ParryNormalPlayer" },
+                    { Sink::ParryNPlayer2, "ParryNormalPlayer2" },
+                    { Sink::ParryNPlayer3, "ParryNormalPlayer3" } } };
+        }
+
+        if (a_leftHand) {
+            return perfect ?
+                std::array<VisualEffect, 3>{ {
+                    { Sink::ParryPNPCS, "ParryPerfectNPCShield" },
+                    { Sink::ParryPNPCS2, "ParryPerfectNPCShield2" },
+                    { Sink::ParryPNPCS3, "ParryPerfectNPCShield3" } } } :
+                std::array<VisualEffect, 3>{ {
+                    { Sink::ParryNNPCS, "ParryNormalNPCShield" },
+                    { Sink::ParryNNPCS2, "ParryNormalNPCShield2" },
+                    { Sink::ParryNNPCS3, "ParryNormalNPCShield3" } } };
+        }
+
+        return perfect ?
+            std::array<VisualEffect, 3>{ {
+                { Sink::ParryPNPC, "ParryPerfectNPC" },
+                { Sink::ParryPNPC2, "ParryPerfectNPC2" },
+                { Sink::ParryPNPC3, "ParryPerfectNPC3" } } } :
+            std::array<VisualEffect, 3>{ {
+                { Sink::ParryNNPC, "ParryNormalNPC" },
+                { Sink::ParryNNPC2, "ParryNormalNPC2" },
+                { Sink::ParryNNPC3, "ParryNormalNPC3" } } };
+    }
+
+    bool SpawnAndAttachParryEffect(
+        RE::Actor* a_blocker,
+        const VisualEffect& a_effect,
+        const RE::BSFixedString& a_nodeName)
+    {
+        if (!a_blocker || !a_effect.form) {
+            WarnVisualOnce(
+                std::format("missing:{}", a_effect.editorID),
+                std::format("VFX de parry '{}' indisponível; o efeito será ignorado com segurança.", a_effect.editorID));
+            return false;
+        }
+
+        auto spawned = a_blocker->PlaceObjectAtMe(a_effect.form, false);
+        if (!spawned) {
+            WarnVisualOnce(
+                std::format("spawn:{}", a_effect.editorID),
+                std::format(
+                    "PlaceObjectAtMe falhou para o VFX '{}' no ator {:08X}; o efeito será ignorado com segurança.",
+                    a_effect.editorID,
+                    a_blocker->GetFormID()));
+            return false;
+        }
+
+        if (!spawned->MoveToNode(a_blocker, a_nodeName)) {
+            WarnVisualOnce(
+                std::format("node:{}:{}", a_effect.editorID, a_nodeName.c_str()),
+                std::format(
+                    "Não foi possível anexar o VFX '{}' ao node '{}'; o efeito permanecerá sem ancoragem.",
+                    a_effect.editorID,
+                    a_nodeName.c_str()));
+            return false;
+        }
+
+        return true;
+    }
 
     template <class T>
     T* LookupFormByEditorID(std::string_view editorID)
@@ -427,53 +585,82 @@ void Sink::ParryTimerManager::RemoveWindow(RE::FormID a_formID) {
 }
 
 void Sink::InitializeForms() {
-    ParryNPlayer = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalPlayer");
-    ParryNPlayer2 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalPlayer2");
-    ParryNPlayer3 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalPlayer3");
-    ParryNPlayerS = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalPlayerShield");
-    ParryNPlayerS2 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalPlayerShield2");
-    ParryNPlayerS3 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalPlayerShield3");
-    ParryPPlayer = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectPlayer");
-    ParryPPlayer2 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectPlayer2");
-    ParryPPlayer3 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectPlayer3");
-    ParryPPlayerS = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectPlayerShield");
-    ParryPPlayerS2 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectPlayerShield2");
-    ParryPPlayerS3 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectPlayerShield3");
-    ParryNNPC = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalNPC");
-    ParryNNPC2 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalNPC2");
-    ParryNNPC3 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalNPC3");
-    ParryNNPCS = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalNPCShield");
-    ParryNNPCS2 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalNPCShield2");
-    ParryNNPCS3 = LookupFormByEditorID<RE::BGSExplosion>("ParryNormalNPCShield3");
-    ParryPNPC = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectNPC");
-    ParryPNPC2 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectNPC2");
-    ParryPNPC3 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectNPC3");
-    ParryPNPCS = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectNPCShield");
-    ParryPNPCS2 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectNPCShield2");
-    ParryPNPCS3 = LookupFormByEditorID<RE::BGSExplosion>("ParryPerfectNPCShield3");
+    struct VisualFormTarget {
+        RE::BGSExplosion** destination;
+        std::string_view editorID;
+    };
 
-    ParryNormalSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryNormalSound");
-    ParryNormalShieldSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryNormalSoundShield");
-    ParryPerfectSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryPerfectSound");
-    ParryPerfectShieldSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryPerfectSoundShield");
+    const std::array visualTargets{
+        VisualFormTarget{ &ParryNPlayer, "ParryNormalPlayer" },
+        VisualFormTarget{ &ParryNPlayer2, "ParryNormalPlayer2" },
+        VisualFormTarget{ &ParryNPlayer3, "ParryNormalPlayer3" },
+        VisualFormTarget{ &ParryNPlayerS, "ParryNormalPlayerShield" },
+        VisualFormTarget{ &ParryNPlayerS2, "ParryNormalPlayerShield2" },
+        VisualFormTarget{ &ParryNPlayerS3, "ParryNormalPlayerShield3" },
+        VisualFormTarget{ &ParryPPlayer, "ParryPerfectPlayer" },
+        VisualFormTarget{ &ParryPPlayer2, "ParryPerfectPlayer2" },
+        VisualFormTarget{ &ParryPPlayer3, "ParryPerfectPlayer3" },
+        VisualFormTarget{ &ParryPPlayerS, "ParryPerfectPlayerShield" },
+        VisualFormTarget{ &ParryPPlayerS2, "ParryPerfectPlayerShield2" },
+        VisualFormTarget{ &ParryPPlayerS3, "ParryPerfectPlayerShield3" },
+        VisualFormTarget{ &ParryNNPC, "ParryNormalNPC" },
+        VisualFormTarget{ &ParryNNPC2, "ParryNormalNPC2" },
+        VisualFormTarget{ &ParryNNPC3, "ParryNormalNPC3" },
+        VisualFormTarget{ &ParryNNPCS, "ParryNormalNPCShield" },
+        VisualFormTarget{ &ParryNNPCS2, "ParryNormalNPCShield2" },
+        VisualFormTarget{ &ParryNNPCS3, "ParryNormalNPCShield3" },
+        VisualFormTarget{ &ParryPNPC, "ParryPerfectNPC" },
+        VisualFormTarget{ &ParryPNPC2, "ParryPerfectNPC2" },
+        VisualFormTarget{ &ParryPNPC3, "ParryPerfectNPC3" },
+        VisualFormTarget{ &ParryPNPCS, "ParryPerfectNPCShield" },
+        VisualFormTarget{ &ParryPNPCS2, "ParryPerfectNPCShield2" },
+        VisualFormTarget{ &ParryPNPCS3, "ParryPerfectNPCShield3" }
+    };
+
+    std::array<RE::BGSExplosion*, visualTargets.size()> resolvedVisuals{};
+    std::size_t resolvedVisualCount = 0;
+    for (std::size_t i = 0; i < visualTargets.size(); ++i) {
+        resolvedVisuals[i] = LookupFormByEditorID<RE::BGSExplosion>(visualTargets[i].editorID);
+        if (resolvedVisuals[i]) {
+            ++resolvedVisualCount;
+        } else {
+            logger::critical("VFX de parry obrigatório '{}' não foi resolvido.", visualTargets[i].editorID);
+        }
+    }
+
+    auto* normalSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryNormalSound");
+    auto* normalShieldSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryNormalSoundShield");
+    auto* perfectSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryPerfectSound");
+    auto* perfectShieldSound = LookupFormByEditorID<RE::BGSSoundDescriptorForm>("ParryPerfectSoundShield");
+
+    {
+        std::unique_lock lock(g_parryFormsMutex);
+        for (std::size_t i = 0; i < visualTargets.size(); ++i) {
+            // DFG updates may temporarily omit a form. Keep a previously valid
+            // game-owned form instead of publishing a transient nullptr.
+            if (resolvedVisuals[i] || !*visualTargets[i].destination) {
+                *visualTargets[i].destination = resolvedVisuals[i];
+            }
+        }
+        if (normalSound || !ParryNormalSound) ParryNormalSound = normalSound;
+        if (normalShieldSound || !ParryNormalShieldSound) ParryNormalShieldSound = normalShieldSound;
+        if (perfectSound || !ParryPerfectSound) ParryPerfectSound = perfectSound;
+        if (perfectShieldSound || !ParryPerfectShieldSound) ParryPerfectShieldSound = perfectShieldSound;
+    }
 
     bool soundsReady = true;
-    soundsReady &= ValidateSoundDescriptor("ParryNormalSound", ParryNormalSound);
-    soundsReady &= ValidateSoundDescriptor("ParryNormalSoundShield", ParryNormalShieldSound);
-    soundsReady &= ValidateSoundDescriptor("ParryPerfectSound", ParryPerfectSound);
-    soundsReady &= ValidateSoundDescriptor("ParryPerfectSoundShield", ParryPerfectShieldSound);
+    soundsReady &= ValidateSoundDescriptor("ParryNormalSound", normalSound);
+    soundsReady &= ValidateSoundDescriptor("ParryNormalSoundShield", normalShieldSound);
+    soundsReady &= ValidateSoundDescriptor("ParryPerfectSound", perfectSound);
+    soundsReady &= ValidateSoundDescriptor("ParryPerfectSoundShield", perfectShieldSound);
 
-
-
-    //Marker = dataHandler->LookupForm<RE::TESObjectACTI>(0x81E, "ParryAll.esp");
-
-    // Para o marker (verifique se o final é 5901 mesmo no xEdit)
-
-    if (!ParryNPlayer) {
-        SKSE::log::critical("FALHA: não encontrado em ParryAll.esp!");
-    }
-    else {
-        SKSE::log::info("ParryEffects carregado com sucesso.");
+    if (resolvedVisualCount == visualTargets.size()) {
+        SKSE::log::info("Todos os {} VFX de parry foram carregados com sucesso.", resolvedVisualCount);
+    } else {
+        SKSE::log::critical(
+            "Somente {}/{} VFX de parry foram resolvidos. Os ausentes serão ignorados com segurança.",
+            resolvedVisualCount,
+            visualTargets.size());
     }
     if (!soundsReady) {
         SKSE::log::critical("FALHA: um ou mais sound descriptors do Parry não estão prontos para reprodução.");
@@ -533,6 +720,9 @@ void Sink::TriggerSlowTime(float a_multiplier, int a_durationMS)
 void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::ParrySource a_source, Sink::ParryType a_type) {
     if (!a_blocker) return;
 
+    (void)a_proj;
+    (void)a_source;
+
     bool isPlayer = a_blocker->IsPlayerRef();
 
     int visualMode = isPlayer ? ParrySettings::playerVisualMode : ParrySettings::npcVisualMode;
@@ -541,94 +731,44 @@ void Sink::PlayParryEffects(RE::Actor* a_blocker, RE::Projectile* a_proj, Sink::
     bool showVisuals = (visualMode == 1) || (visualMode == 2 && a_type == Sink::ParryType::Perfect);
     bool playSounds = (soundMode == 1) || (soundMode == 2 && a_type == Sink::ParryType::Perfect);
 
-    RE::BSFixedString nodeName = "WEAPON";
-    auto leftHandObject = a_blocker->GetEquippedObject(true);
-    if (leftHandObject) {
-        auto armor = leftHandObject->As<RE::TESObjectARMO>();
-        if (armor && armor->IsShield()) {
-            nodeName = "SHIELD";
+    const bool hasShield = HasEquippedShield(a_blocker);
+    const bool useLeftHandAnchor = UsesLeftHandVisualAnchor(a_blocker);
+    RE::BSFixedString nodeName;
+    const bool hasVisualNode = ResolveParryVisualNode(a_blocker, useLeftHandAnchor, nodeName);
+
+    RE::BGSSoundDescriptorForm* sound = nullptr;
+    std::array<VisualEffect, 3> visualEffects{};
+    {
+        std::shared_lock lock(g_parryFormsMutex);
+        if (a_type == Sink::ParryType::Perfect) {
+            sound = hasShield ? Sink::ParryPerfectShieldSound : Sink::ParryPerfectSound;
+        } else if (a_type == Sink::ParryType::Normal) {
+            sound = hasShield ? Sink::ParryNormalShieldSound : Sink::ParryNormalSound;
         }
+        visualEffects = SelectParryVisuals(isPlayer, hasShield, a_type);
     }
 
     if (playSounds) {
-        RE::BGSSoundDescriptorForm* sound = nullptr;
-        if (a_type == Sink::ParryType::Perfect) {
-            sound = nodeName == "SHIELD" ? Sink::ParryPerfectShieldSound : Sink::ParryPerfectSound;
-        } else if (a_type == Sink::ParryType::Normal) {
-            sound = nodeName == "SHIELD" ? Sink::ParryNormalShieldSound : Sink::ParryNormalSound;
-        }
         if (sound && !PlaySoundOnActor(a_blocker, sound)) {
             SKSE::log::warn("Não foi possível tocar o som de parry no ator {:08X}.", a_blocker->GetFormID());
         }
     }
 
-    if (isPlayer) {
-        if (nodeName == "SHIELD") {
-            if (a_type == Sink::ParryType::Perfect) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayerS3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-            else if (a_type == Sink::ParryType::Normal) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayerS3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-        }
-        else { // WEAPON
-            if (a_type == Sink::ParryType::Perfect) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPPlayer3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-            else if (a_type == Sink::ParryType::Normal) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNPlayer3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-        }
+    if (!showVisuals) {
+        return;
     }
-    else { // NPC
-        if (nodeName == "SHIELD") {
-            if (a_type == Sink::ParryType::Perfect) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPCS3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-            else if (a_type == Sink::ParryType::Normal) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPCS3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-        }
-        else { // WEAPON
-            if (a_type == Sink::ParryType::Perfect) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPC, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPC2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryPNPC3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-            else if (a_type == Sink::ParryType::Normal) {
-                if (showVisuals) {
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPC, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPC2, false)->MoveToNode(a_blocker, nodeName);
-                    a_blocker->PlaceObjectAtMe(Sink::ParryNNPC3, false)->MoveToNode(a_blocker, nodeName);
-                }
-            }
-        }
+
+    if (!hasVisualNode) {
+        WarnVisualOnce(
+            std::format("actor-node:{:08X}", a_blocker->GetFormID()),
+            std::format(
+                "Ator {:08X} não possui 3D/node compatível para VFX de parry; os visuais serão ignorados com segurança.",
+                a_blocker->GetFormID()));
+        return;
+    }
+
+    for (const auto& effect : visualEffects) {
+        SpawnAndAttachParryEffect(a_blocker, effect, nodeName);
     }
 }
 
