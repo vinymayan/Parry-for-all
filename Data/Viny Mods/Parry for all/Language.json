@@ -8,6 +8,8 @@
     "commitment_header": "Commitment",
     "bash_opens_parry_window": "Bash Opens the Parry Window Instead of Block",
     "cancel_parry_on_block_stop": "Close the Parry Window When Leaving Block",
+    "respect_block_angle": "Parry Only Within the Block Angle",
+    "block_angle": "Block Angle (degrees each side, 0 = game setting)",
     "effects_header": "Effects",
     "flat_damage_val": "Flat Damage Value",
     "general_settings": "General Settings",

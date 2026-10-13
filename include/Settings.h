@@ -42,6 +42,8 @@ namespace ParrySettings {
 
     inline bool cancelParryOnBlockStop = true;
     inline bool bashOpensParryWindow = false;
+    inline bool respectBlockAngle = false;  // parry only within the block angle
+    inline float blockAngle = 0.0f;         // half-angle in degrees; 0 = use fCombatHitConeAngle
     inline int parryFeedback = 2; // 0: None, 1: Recoil, 2: Hit Block
 
     // Player Timings
