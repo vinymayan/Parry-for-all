@@ -1038,6 +1038,8 @@ namespace ParrySettings {
 
         doc.AddMember("cancelParryOnBlockStop", cancelParryOnBlockStop, allocator);
         doc.AddMember("bashOpensParryWindow", bashOpensParryWindow, allocator);
+        doc.AddMember("respectBlockAngle", respectBlockAngle, allocator);
+        doc.AddMember("blockAngle", blockAngle, allocator);
         doc.AddMember("parryFeedback", parryFeedback, allocator);
 
         // Player
@@ -1218,6 +1220,8 @@ namespace ParrySettings {
             if (doc.IsObject()) {
                 if (doc.HasMember("cancelParryOnBlockStop")) cancelParryOnBlockStop = doc["cancelParryOnBlockStop"].GetBool();
                 if (doc.HasMember("bashOpensParryWindow")) bashOpensParryWindow = doc["bashOpensParryWindow"].GetBool();
+                if (doc.HasMember("respectBlockAngle") && doc["respectBlockAngle"].IsBool()) respectBlockAngle = doc["respectBlockAngle"].GetBool();
+                if (doc.HasMember("blockAngle") && doc["blockAngle"].IsNumber()) blockAngle = std::clamp(doc["blockAngle"].GetFloat(), 0.0f, 180.0f);
                 parryFeedback = doc.HasMember("parryFeedback") && doc["parryFeedback"].IsInt() ?
                     std::clamp(doc["parryFeedback"].GetInt(), 0, 2) : 0;
                 if (doc.HasMember("playerNormalParryMS")) playerNormalParryMS = doc["playerNormalParryMS"].GetInt();
@@ -1943,6 +1947,12 @@ namespace ParrySettings {
         if (ImGuiMCP::CollapsingHeader(GetLoc("menu.parry_window_behavior_header", "Parry Window Behavior"), ImGuiMCP::ImGuiTreeNodeFlags_DefaultOpen)) {
             if (ImGuiMCP::Checkbox(GetLoc("menu.bash_opens_parry_window", "Bash Opens the Parry Window Instead of Block"), &bashOpensParryWindow)) changed = true;
             if (ImGuiMCP::Checkbox(GetLoc("menu.cancel_parry_on_block_stop", "Close the Parry Window When Leaving Block"), &cancelParryOnBlockStop)) changed = true;
+            if (ImGuiMCP::Checkbox(GetLoc("menu.respect_block_angle", "Parry Only Within the Block Angle"), &respectBlockAngle)) changed = true;
+            if (respectBlockAngle) {
+                ImGuiMCP::Indent();
+                if (RenderFloatSliderWithInput(GetLoc("menu.block_angle", "Block Angle (degrees each side, 0 = game setting)"), blockAngle, 0.0f, 180.0f, "%.0f")) changed = true;
+                ImGuiMCP::Unindent();
+            }
         }
 
         ImGuiMCP::Spacing();

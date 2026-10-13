@@ -246,6 +246,28 @@ bool IsUnblockableAttack(RE::Actor* a_attacker) {
 	return a_attacker && a_attacker->GetGraphVariableBool("isUnblockableHit", isUnblockable) && isUnblockable;
 }
 
+// Optional block-angle check (off by default): when enabled, a parry only
+// happens if the attacker is inside the defender's block cone, so attacks
+// from behind are not parried. The cone is the half-angle in degrees on each
+// side of the defender's heading: ParrySettings::blockAngle, or the game
+// setting fCombatHitConeAngle when blockAngle is 0 (fallback 35).
+bool IsAttackerInBlockCone(RE::Actor* a_defender, RE::TESObjectREFR* a_attacker) {
+	if (!ParrySettings::respectBlockAngle || !a_defender || !a_attacker) {
+		return true;
+	}
+	float cone = ParrySettings::blockAngle;
+	if (cone <= 0.0f) {
+		cone = 35.0f;
+		if (auto gmst = RE::GameSettingCollection::GetSingleton()) {
+			if (auto setting = gmst->GetSetting("fCombatHitConeAngle")) {
+				cone = setting->GetFloat();
+			}
+		}
+	}
+	const float heading = a_defender->GetHeadingAngle(a_attacker->GetPosition(), false);
+	return std::fabs(heading) <= cone;
+}
+
 void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 {
 	logger::debug("Melee hit processed");
@@ -261,6 +283,10 @@ void Hook_OnMeleeHit::processHit(RE::Actor* victim, RE::HitData& hitData)
 		return;
 	}
 	if (IsUnblockableAttack(aggressor) || (!victim->IsBlocking() && !ParrySettings::bashOpensParryWindow)) {
+		_ProcessHit(victim, hitData);
+		return;
+	}
+	if (!IsAttackerInBlockCone(victim, aggressor)) {
 		_ProcessHit(victim, hitData);
 		return;
 	}
@@ -455,6 +481,9 @@ namespace Hook_Precision
 			return ret;
 		}
 		if ((!victim->IsBlocking() && !ParrySettings::bashOpensParryWindow) || IsUnblockableAttack(aggressor)) {
+			return ret;
+		}
+		if (!IsAttackerInBlockCone(victim, aggressor)) {
 			return ret;
 		}
 
@@ -704,6 +733,9 @@ bool processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* a_projectile, 
 	}
 
 	if (IsUnblockableAttack(shooter)) {
+		return false;
+	}
+	if (shooter && !IsAttackerInBlockCone(a_blocker, shooter)) {
 		return false;
 	}
 
